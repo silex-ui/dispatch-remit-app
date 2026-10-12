@@ -237,6 +237,7 @@ function normalize(s){
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
   s.ledger=s.ledger||[];
   s.riderDays=s.riderDays||{};
+  (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   return s;
 }
@@ -421,7 +422,7 @@ async function pollOnce(){
 }
 let me=null,view='login';
 const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,showAll:false,hx:{},err:'',loginRole:'owner',loginRider:'',selTx:{},
-  sumDate:today(),ibF:null,
+  sumDate:today(),ibF:null,caF:null,
   rem:{rider:'all',from:today(),to:today(),rstatus:'all'},
   pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',note:'',err:''},tipF:{date:today(),amt:'',note:'',err:''}};
@@ -772,6 +773,8 @@ function vDailySummary(riderName){
   const canEdit=me.role!=='rider';
   const d=ui.sumDate;
   const sum=daySummary(riderName,d);
+  const rObj=S.settings.riders.find(r=>r.name===riderName);
+  const ca=rObj?num(rObj.cashAdvance||0):0;
   const stat=(label,val,sub,cls)=>`<div class="stat ${cls||''}"><small>${label}</small><b>${peso(val)}</b>${sub?`<span class="dsub">${sub}</span>`:''}</div>`;
   const ibVal=ui.ibF!=null?ui.ibF:String(sum.initialBudget);
   return `<section class="card">
@@ -794,6 +797,7 @@ function vDailySummary(riderName){
    ${stat('Deductions',sum.deductions)}
    ${stat('Total rider fund',sum.totalRiderFund,'Initial budget + Total fund + Deductions + Management share − Total online refund − Online tip','wide hl')}
   </div>
+  ${ca>0?`<div class="stats"><div class="stat wide"><small>Cash advance balance</small><b>${peso(ca)}</b><span class="dsub">Still owed from a cash advance — repaid through deductions, not included in Total Rider Fund</span></div></div>`:''}
   ${canEdit?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:''}
   <button class="btn blue" style="margin-top:8px" data-a="downloadRemitImage" data-rider="${esc(riderName)}">Download summary (.jpeg)</button>
   </section>`;
@@ -804,10 +808,17 @@ function vLedgerCard(riderName){
   const{fund,ded,list}=ledgerTotals(riderName);
   const fundEntries=list.filter(e=>e.type==='fund'),dedEntries=list.filter(e=>e.type==='deduction');
   const tipList=tipEntriesCombined(riderName),tip=tipList.reduce((s,e)=>s+e.amount,0);
+  const rObj=S.settings.riders.find(r=>r.name===riderName);
+  const ca=rObj?num(rObj.cashAdvance||0):0;
+  const caVal=ui.caF!=null?ui.caF:String(ca);
   const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
-  <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div></div>
+  <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div>${ca>0?`<div class="stat"><small>Cash advance balance</small><b>${peso(ca)}</b></div>`:''}</div>
+  <div class="blk"><h4>Cash advance</h4><p class="hint">What the rider still owes from a cash advance. Each deduction you add below is automatically subtracted from this balance. It doesn't change the rider fund formula &mdash; it's tracked here only so the remaining balance stays visible.</p>
+  ${rObj&&!ca?'<p class="hint">No outstanding cash advance.</p>':(rObj?'':'<p class="empty">Rider not found in Settings.</p>')}
+  ${canEdit&&rObj?`<div class="grid2"><input type="number" inputmode="decimal" min="0" step="any" data-b="ui.caF" value="${esc(caVal)}"><button class="btn" data-a="saveCashAdvance" data-rider="${esc(riderName)}">Save</button></div>`:''}
+  </div>
   <div class="blk"><h4>Add fund</h4>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
   <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
@@ -917,6 +928,8 @@ async function downloadRemitSummaryImage(riderName){
   if(!riderName||riderName==='all'){toast('Select a single rider first.');return}
   if(typeof html2canvas==='undefined'){toast('Image export is still loading — try again in a moment.');return}
   const date=ui.sumDate,sum=daySummary(riderName,date);
+  const rObj=S.settings.riders.find(r=>r.name===riderName);
+  const ca=rObj?num(rObj.cashAdvance||0):0;
   const led=dayLedger(riderName,date);
   const fundEntries=led.filter(e=>e.type==='fund');
   const dedEntries=led.filter(e=>e.type==='deduction');
@@ -943,6 +956,7 @@ async function downloadRemitSummaryImage(riderName){
     <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;opacity:.9">Total rider fund</div>
     <div style="font-size:1.3rem;font-weight:800">${peso(sum.totalRiderFund)}</div>
    </div>
+   ${ca>0?`<div style="margin-top:8px;padding:9px 0;border-bottom:1px solid #D3DAE3"><div style="font-size:.7rem;color:#586577;text-transform:uppercase;letter-spacing:.03em">Cash advance balance</div><div style="font-size:1.05rem;font-weight:700;color:#D0273A">${peso(ca)}</div></div>`:''}
    ${miniTable('Fund history',fundEntries,'No fund entries for this date.',signedRow)}
    ${miniTable('Deduction history',dedEntries,'No deductions for this date.',signedRow)}
    ${miniTable('Tip history',tipEntries,'No tip entries for this date.',tipRow)}
@@ -1362,6 +1376,7 @@ function act(a,el,ev){
     if(!(amt>0)){ui.dedF.err='Enter an amount greater than zero.';break}
     if(!note){ui.dedF.err='Add a note for this deduction.';break}
     S.ledger.push({id:uid(),ts:Date.now(),type:'deduction',rider:riderSel,date:ui.dedF.date,amount:amt,note});
+    {const rObj=S.settings.riders.find(r=>r.name===riderSel);if(rObj)rObj.cashAdvance=Math.max(0,(rObj.cashAdvance||0)-amt)}
     persist();ui.dedF={date:today(),amt:'',note:'',err:''};toast('Deduction added');break;}
   case 'addTip':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.tipF.err='Pick a rider first.';break}
@@ -1377,6 +1392,10 @@ function act(a,el,ev){
     const rec=S.riderDays[key]||{};
     S.riderDays[key]={...rec,initialBudget:amt,posted:!!rec.posted};
     ui.ibF=null;persist();toast('Initial budget saved');break;}
+  case 'saveCashAdvance':{const rider=el.dataset.rider;
+    const rObj=S.settings.riders.find(r=>r.name===rider);
+    if(rObj){rObj.cashAdvance=Math.max(0,num(ui.caF!=null?ui.caF:0))}
+    ui.caF=null;persist();toast('Cash advance balance saved');break;}
   case 'postDay':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
     const sum=daySummary(rider,date);
     S.riderDays[key]={...(S.riderDays[key]||{}),initialBudget:sum.initialBudget,posted:true,closingFund:sum.totalRiderFund};
@@ -1395,7 +1414,7 @@ function act(a,el,ev){
   case 'addRider':{const n=$('#rName').value.trim(),p=$('#rPin').value.trim();
     if(!n||p.length<4){$('#sErr').textContent='Enter a name and a PIN of at least 4 digits.';return}
     if(S.settings.riders.some(r=>r.name.toLowerCase()===n.toLowerCase())){$('#sErr').textContent='That rider name already exists.';return}
-    S.settings.riders.push({id:uid(),name:n,pin:p});persist();toast('Rider added');break;}
+    S.settings.riders.push({id:uid(),name:n,pin:p,cashAdvance:0});persist();toast('Rider added');break;}
   case 'editRider':ui.modal={type:'rider',id};break;
   case 'saveRiderPin':{const p=$('#npin').value.trim();if(p.length<4){$('#mErr').textContent='Use at least 4 digits.';return}
     const r=S.settings.riders.find(x=>x.id===id);if(r){r.pin=p;persist()}closeModal();toast('PIN updated');break;}
