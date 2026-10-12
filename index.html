@@ -340,7 +340,7 @@ async function bootSync(){
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
   render();
   if(pollTimer)clearInterval(pollTimer);
-  pollTimer=setInterval(pollOnce,7000);
+  pollTimer=setInterval(pollOnce,3000);
 }
 async function pollOnce(){
   if(!API_ON||pushing)return;
