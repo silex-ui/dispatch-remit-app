@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dispatch &amp; Remit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+:root{
+  --bg:#EDF0F4;--surface:#FFFFFF;--ink:#141C26;--muted:#586577;--line:#D3DAE3;--fld:#F6F8FB;
+  --red:#D0273A;--green:#178A50;--purple:#6A48D6;--orange:#D9600A;--blue:#1E63D8;--yellow:#F5B800;--on:#FFFFFF;--yink:#3A2C00;
+  --head:'Bricolage Grotesque','Segoe UI',system-ui,sans-serif;--body:'Figtree','Segoe UI',system-ui,-apple-system,sans-serif;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#0E1319;--surface:#18202A;--ink:#EEF2F6;--muted:#9AA7B7;--line:#2C3745;--fld:#111820;
+  --red:#EF5568;--green:#2FBF74;--purple:#9A85F2;--orange:#F58A3D;--blue:#5B98F5;--yellow:#F5C518;--on:#0B1016;--yink:#F5E6A8}
+}
+:root[data-theme="dark"]{--bg:#0E1319;--surface:#18202A;--ink:#EEF2F6;--muted:#9AA7B7;--line:#2C3745;--fld:#111820;
+  --red:#EF5568;--green:#2FBF74;--purple:#9A85F2;--orange:#F58A3D;--blue:#5B98F5;--yellow:#F5C518;--on:#0B1016;--yink:#F5E6A8}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-text-size-adjust:100%;overflow-x:hidden}
+#app{max-width:720px;margin:0 auto;padding:0 14px 90px}
+h1,h2,h3,h4{font-family:var(--head);margin:0;line-height:1.15}
+h2{font-size:1.35rem;font-weight:800}
+h3{font-size:1.05rem;font-weight:800}
+h4{font-size:.95rem;font-weight:600;margin-bottom:8px}
+button{font:inherit;cursor:pointer;color:inherit}
+input,select,textarea{font:inherit;font-size:16px;color:var(--ink);background:var(--fld);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-height:44px}
+textarea{resize:vertical}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 0 10px;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5}
+.top strong{font-family:var(--head);font-size:1.05rem;font-weight:800;display:block}
+.role{font-size:.8rem;color:var(--muted)}
+.sb{font-size:.72rem;font-weight:700;border-radius:999px;padding:4px 10px;display:inline-flex;align-items:center;white-space:nowrap}
+.sb-ok{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
+.sb-wait{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
+.sb-bad{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
+.hb{display:flex;gap:6px}
+
+/* buttons */
+.btn{border:0;border-radius:12px;padding:0 16px;min-height:44px;font-weight:700;background:var(--ink);color:var(--surface);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn{white-space:nowrap}
+.btn[disabled]{opacity:.55;cursor:default}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn.red{background:var(--red);color:var(--on)}.btn.green{background:var(--green);color:var(--on)}
+.btn.purple{background:var(--purple);color:var(--on)}.btn.orange{background:var(--orange);color:var(--on)}
+.btn.blue{background:var(--blue);color:var(--on)}.btn.yellow{background:var(--yellow);color:var(--yink)}
+.btn.full{width:100%}
+.btn.big{min-height:60px;font-size:1.15rem;font-weight:800;width:100%;border-radius:14px}
+.ib{width:42px;height:42px;border-radius:11px;border:0;display:grid;place-items:center;background:var(--ink);color:var(--surface)}
+.ib svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ib.red{background:var(--red);color:var(--on)}.ib.green{background:var(--green);color:var(--on)}
+.ib.purple{background:var(--purple);color:var(--on)}.ib.orange{background:var(--orange);color:var(--on)}
+
+/* login */
+.login{padding-top:12vh;max-width:380px;margin:0 auto;display:grid;gap:14px}
+.login h1{font-size:2.2rem;font-weight:800}
+.sub{margin:-6px 0 4px;color:var(--muted)}
+.f{display:grid;gap:6px;font-weight:600;font-size:.92rem}
+.f>input,.f>select,.f>textarea{font-weight:400}
+.f select+input{margin-top:6px}
+.err{color:var(--red);font-weight:600;margin:0;min-height:0}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--fld);border:1.5px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;border-radius:9px;min-height:40px;font-weight:600}
+.seg button.on{background:var(--ink);color:var(--surface)}
+
+/* dashboard */
+.dash{display:grid;gap:12px;padding-top:8px}
+.dbtn{display:grid;grid-template-columns:1fr auto;align-items:center;text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:20px 18px;gap:2px}
+.dbtn strong{font-family:var(--head);font-size:1.4rem;font-weight:800}
+.dbtn span{grid-column:1;color:var(--muted);font-size:.9rem}
+.dbtn svg{grid-column:2;grid-row:1/3;width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* tabs */
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 12px}
+.tab{border:0;border-radius:14px;min-height:58px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--head);font-weight:800;font-size:1rem;color:var(--on);white-space:nowrap}
+.tab b{background:rgba(255,255,255,.25);border-radius:99px;padding:1px 10px;font-size:.95rem}
+.tab svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.5;transition:transform .15s}
+.tab[aria-expanded="true"] svg{transform:rotate(180deg)}
+.tab.red{background:var(--red)}.tab.green{background:var(--green)}.tab.blue{background:var(--blue);width:100%}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tab b{background:rgba(0,0,0,.2)}}
+
+/* panels & cards */
+.panel{border-radius:16px;padding:14px;margin-bottom:14px;display:grid;gap:10px}
+.panel.red{background:color-mix(in srgb,var(--red) 9%,var(--surface));border:1.5px solid color-mix(in srgb,var(--red) 40%,var(--line))}
+.panel.green{background:color-mix(in srgb,var(--green) 9%,var(--surface));border:1.5px solid color-mix(in srgb,var(--green) 40%,var(--line))}
+.grp{display:flex;align-items:center;gap:8px;margin-top:4px}
+.grp.red h3{color:var(--red)}
+.grp.yl{padding-left:10px;border-left:6px solid var(--yellow)}
+.empty{margin:0;color:var(--muted);font-size:.92rem}
+.bk{background:var(--surface);border-radius:13px;padding:12px;display:grid;gap:10px;border:1.5px solid var(--line);border-left-width:6px}
+.bk.red{border-left-color:var(--red)}.bk.yellow{border-left-color:var(--yellow);background:color-mix(in srgb,var(--yellow) 12%,var(--surface))}.bk.green{border-left-color:var(--green)}
+.bk strong{font-size:1.05rem}
+.meta{display:flex;flex-wrap:wrap;gap:2px 14px;color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.note{margin:4px 0 0;font-size:.9rem}
+.acts{display:flex;gap:8px;justify-content:flex-end}
+.chooser{display:flex;align-items:center;gap:10px;background:var(--fld);border-radius:10px;padding:8px 10px;font-size:.9rem;flex-wrap:wrap}
+.chooser span{flex:1;min-width:130px}
+.chooser .ib{width:38px;height:38px}
+
+/* calculator */
+.card{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px;display:grid;gap:14px}
+.card>h2{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px 10px;row-gap:6px}
+.card>h2>.btn{font-size:.85rem;padding:0 12px;min-height:38px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:400px){.grid2{grid-template-columns:1fr}}
+.blk{display:grid;gap:8px}
+.row3{display:grid;grid-template-columns:110px 1fr auto;gap:8px}
+.ent{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.ent li{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;font-size:.88rem;padding:4px 0;border-bottom:1px dashed var(--line)}
+.rm{border:0;background:transparent;color:var(--red);font-size:1.4rem;line-height:1;width:32px;height:32px;border-radius:8px}
+.tot{display:flex;justify-content:space-between;font-weight:700}
+.hint{margin:0;font-size:.85rem;color:var(--muted)}
+.sub-blk{background:var(--fld);border-radius:12px;padding:12px;display:grid;gap:10px;margin-top:-4px}
+.warn{background:color-mix(in srgb,var(--red) 12%,var(--surface));border:1.5px solid var(--red);border-radius:10px;padding:10px 12px;font-weight:600;margin:0}
+.calcbtn{box-shadow:0 0 0 3px var(--yellow),0 6px 0 rgba(0,0,0,.18)}
+
+/* summary */
+.sum{border:2px solid var(--ink)}
+.line{display:flex;justify-content:space-between;gap:12px;font-variant-numeric:tabular-nums}
+.line small{color:var(--muted);display:block}
+.line.neg b{color:var(--green)}
+.total{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--ink);padding-top:10px}
+.total b{font-family:var(--head);font-size:2rem;font-weight:800;font-variant-numeric:tabular-nums}
+.who{display:grid;gap:2px;font-size:.92rem;color:var(--muted)}
+.who b{color:var(--ink)}
+.pbrk{margin-top:4px;padding-top:10px;border-top:1px dashed var(--line)}
+.pbrk h4{font-size:.78rem;color:var(--muted);font-weight:700;margin-bottom:6px}
+.pbrk ul{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.pbrk li{display:flex;justify-content:space-between;gap:10px;font-size:.78rem;color:var(--muted)}
+.pbrk li b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+#summaryExport{background:var(--surface);padding:22px 18px;border-radius:10px;display:grid;gap:14px}
+
+/* history + remit */
+.hist{display:grid;gap:8px;list-style:none;margin:0;padding:0}
+.tx{border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px;background:var(--surface)}
+.txh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.chip{border:0;border-radius:99px;padding:3px 12px;font-weight:700;font-size:.82rem;min-height:30px}
+.chip.paid{background:var(--green);color:var(--on)}.chip.unpaid{background:var(--red);color:var(--on)}
+.chip.nyp{background:var(--yellow);color:var(--yink)}.chip.verified{background:var(--blue);color:var(--on)}.chip.disreg{background:var(--muted);color:var(--on)}
+.pd{display:flex;flex-wrap:wrap;gap:2px 12px;color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+.pd b{color:var(--ink)}
+.tx.disreg-row{opacity:.55}
+.dtable{overflow-x:auto;margin-top:12px;border:1px solid var(--line);border-radius:12px}
+.dtable table{width:100%;border-collapse:collapse;font-size:.85rem;white-space:nowrap}
+.dtable th,.dtable td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
+.dtable th{background:var(--surface2,rgba(0,0,0,.03));font-weight:700;position:sticky;top:0}
+.dtable tbody tr:last-child td{border-bottom:0}
+.dtable tbody tr.disreg-row{opacity:.55}
+.dtable td.notes-cell{white-space:normal;max-width:220px;min-width:140px}
+.empty-inline{color:var(--muted)}
+.bigchk{width:20px;height:20px;cursor:pointer}
+.statusfilter{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px}
+.statusfilter .ck{font-weight:500}
+span.chip{display:inline-flex;align-items:center;min-height:0;padding:1px 10px}
+.txd{display:grid;gap:4px;font-size:.9rem;border-top:1px dashed var(--line);padding-top:8px}
+.link{border:0;background:none;color:var(--blue);font-weight:600;padding:6px 0;text-align:left;min-height:36px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--fld);border-radius:12px;padding:10px}
+.stat small{display:block;color:var(--muted);font-size:.78rem}
+.stat b{font-family:var(--head);font-size:1.05rem;font-variant-numeric:tabular-nums}
+@media (max-width:420px){.stats{grid-template-columns:1fr}}
+.stat.wide{grid-column:1/-1}
+.stat.hl{background:var(--orange);color:var(--on)}
+.stat.hl small{color:rgba(255,255,255,.8)}
+.stat .dsub{display:block;color:var(--muted);font-size:.74rem;margin-top:2px}
+.stat.hl .dsub{color:rgba(255,255,255,.85)}
+.dsHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.dsHead strong{font-family:var(--head);font-size:1.3rem}
+.rr.dim{opacity:.6}
+.amts{text-align:right;display:grid;font-variant-numeric:tabular-nums}
+.amts small{color:var(--muted)}
+.ck{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.9rem}
+.ck input{width:22px;height:22px;min-height:0}
+.rs{display:grid;gap:8px}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.rowr{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;border-bottom:1px dashed var(--line);padding:6px 0}
+
+/* modal + toast */
+.ov{position:fixed;inset:0;background:rgba(8,12,18,.55);display:grid;place-items:end center;z-index:20;padding:0}
+.md{background:var(--surface);width:100%;max-width:520px;max-height:92%;overflow:auto;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:grid;gap:12px}
+.mbtns{display:flex;gap:8px;justify-content:flex-end}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:99px;font-weight:600;z-index:30;display:none;max-width:90%;text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,10);
+const pad=n=>String(n).padStart(2,'0');
+const today=()=>{
+  const tz=(typeof S!=='undefined'&&S&&S.settings&&S.settings.timezone)||'Asia/Manila';
+  try{return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}
+  catch(e){const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+};
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0};
+const peso=n=>'₱'+Number(n||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate=d=>{try{return new Date(d+'T00:00:00').toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}catch(e){return d}};
+const fmtTime=t=>{if(!t)return 'No time';const[h,m]=t.split(':');const H=(+h)%12||12;return H+':'+m+((+h)<12?' AM':' PM')};
+const cmp=(a,b)=>(a.date+(a.time||'')).localeCompare(b.date+(b.time||''));
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const IC={
+ bell:'<path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9M10 21h4"/>',
+ right:'<path d="M5 12h14M13 6l6 6-6 6"/>',left:'<path d="M19 12H5M11 6l-6 6 6 6"/>',
+ pen:'<path d="M4 20l4-1 11-11-3-3L5 16l-1 4zM14 6l3 3"/>',
+ trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+ calc:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h2M14 12h2M8 16h2M14 16h2"/>',
+ check:'<path d="M5 12l5 5 9-10"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',
+ chev:'<path d="M6 9l6 6 6-6"/>'
+};
+const ico=(k)=>`<svg viewBox="0 0 24 24" aria-hidden="true">${IC[k]}</svg>`;
+const ib=(cls,a,id,label,ic,extra='')=>`<button class="ib ${cls}" data-a="${a}" data-id="${id}" ${extra} aria-label="${label}" title="${label}">${ico(ic)}</button>`;
+
+/* ---------- state ---------- */
+const KEY='delivery_dispatch_remit_v1';
+/* Shared backend: a Google Apps Script Web App backed by a Google Sheet.
+   Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
+const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
+const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila'},bookings:[],transactions:[],ledger:[],riderDays:{}});
+function normalize(s){
+  if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
+  s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
+  s.ledger=s.ledger||[];
+  s.riderDays=s.riderDays||{};
+  if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
+  return s;
+}
+function loadLocal(){try{return normalize(JSON.parse(localStorage.getItem(KEY)))}catch(e){return fresh()}}
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+let S=loadLocal();
+let sVer=0;
+const API_ON=!!(API_URL&&API_URL.indexOf('__')!==0);
+const sync={status:API_ON?'connecting':'local',msg:''};
+function persist(){saveLocal();schedulePush()}
+
+/* -- transport: some browsers block a plain cross-origin fetch() to an Apps
+   Script /exec URL. Reads go out as JSONP (a <script> tag — exempt from
+   that restriction); writes go out as a hidden HTML form POST, read back
+   via postMessage from the response page it loads into a hidden iframe. -- */
+let jsonpSeq=0;
+function jsonpGet(url){
+  return new Promise((resolve,reject)=>{
+    const cb='__dcb_'+(jsonpSeq++)+'_'+Date.now();
+    const script=document.createElement('script');
+    let done=false;
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},12000);
+    function cleanup(){clearTimeout(timer);try{delete window[cb]}catch(e){window[cb]=undefined}if(script.parentNode)script.parentNode.removeChild(script)}
+    window[cb]=(data)=>{if(done)return;done=true;cleanup();resolve(data)};
+    script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('script_error'))};
+    script.src=url+(url.indexOf('?')>=0?'&':'?')+'callback='+cb;
+    document.head.appendChild(script);
+  });
+}
+let iframeSeq=0;
+function formPost(url,fields){
+  return new Promise((resolve,reject)=>{
+    const reqId='req_'+(iframeSeq++)+'_'+Date.now();
+    const frameName='f_'+reqId;
+    const iframe=document.createElement('iframe');
+    iframe.name=frameName;iframe.style.display='none';
+    document.body.appendChild(iframe);
+    const form=document.createElement('form');
+    form.method='POST';form.action=url;form.target=frameName;form.style.display='none';
+    const all=Object.assign({reqId},fields);
+    Object.keys(all).forEach(k=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=all[k];form.appendChild(inp)});
+    document.body.appendChild(form);
+    let done=false;
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},15000);
+    function onMsg(ev){
+      if(!ev.data||typeof ev.data!=='object'||ev.data.reqId!==reqId)return;
+      if(done)return;done=true;cleanup();resolve(ev.data);
+    }
+    function cleanup(){
+      clearTimeout(timer);window.removeEventListener('message',onMsg);
+      setTimeout(()=>{if(form.parentNode)form.parentNode.removeChild(form);if(iframe.parentNode)iframe.parentNode.removeChild(iframe)},0);
+    }
+    window.addEventListener('message',onMsg);
+    form.submit();
+  });
+}
+
+/* -- push local changes to the shared backend, debounced -- */
+let pushTimer=null,pushing=false,pushAgain=false;
+function schedulePush(){
+  if(!API_ON)return;
+  if(pushTimer)clearTimeout(pushTimer);
+  pushTimer=setTimeout(doPush,500);
+}
+async function doPush(){
+  if(pushing){pushAgain=true;return}
+  pushing=true;sync.status='saving';render();
+  try{
+    const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
+    if(j.ok){sVer=j.version;sync.status='online';sync.msg=''}
+    else if(j.conflict){
+      S=normalize(j.data);sVer=j.version;saveLocal();
+      sync.status='online';sync.msg='Updated elsewhere just now';
+      toast('Data was just updated on another device — check your last change');
+    }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background'}
+  }catch(e){sync.status='offline';sync.msg='No connection — saved on this device only ['+(e&&e.message)+']'}
+  pushing=false;
+  if(pushAgain){pushAgain=false;doPush();return}
+  render();
+}
+
+/* -- pull the shared state, on boot and then on a quiet poll -- */
+function safeToRefresh(){
+  if(ui.modal)return false;
+  const el=document.activeElement;
+  if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA')){
+    const t=(el.type||'').toLowerCase();
+    if(t!=='checkbox'&&t!=='radio')return false;
+  }
+  return true;
+}
+let pollTimer=null;
+async function bootSync(){
+  if(!API_ON){sync.status='local';render();return}
+  sync.status='connecting';render();
+  try{
+    const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
+    if(j.ok){S=normalize(j.data);sVer=j.version;saveLocal();sync.status='online';sync.msg=''}
+    else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
+  }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
+  render();
+  if(pollTimer)clearInterval(pollTimer);
+  pollTimer=setInterval(pollOnce,7000);
+}
+async function pollOnce(){
+  if(!API_ON||pushing)return;
+  if(!safeToRefresh())return;
+  try{
+    const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
+    if(j.ok){
+      sync.status='online';sync.msg='';
+      if(j.version!==sVer){S=normalize(j.data);sVer=j.version;saveLocal();render()}
+    }
+  }catch(e){sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()}
+}
+let me=null,view='login';
+const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,showAll:false,hx:{},err:'',loginRole:'owner',loginRider:'',selTx:{},
+  sumDate:today(),ibF:null,
+  rem:{rider:'all',from:today(),to:today(),rstatus:'all'},
+  pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
+  fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',note:'',err:''},tipF:{date:today(),amt:'',note:'',err:''}};
+const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
+  cash:{type:'in',amt:'',mode:'pct',val:''},bills:[],billAmt:'',billPct:'1.5',bErr:'',fee:'120',disc:'0',hop:'0',wait:'0',other:'',otherNote:'',
+  bookingId:null,result:null,mop:'online',account:'keem',received:'',splitCash:'',splitOnline:'',status:'nyp',msg:'',savedId:null});
+let calc=newCalc();
+
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2400)}
+
+/* ---------- calculation ---------- */
+function compute(c){
+  const pabili=c.pabili.reduce((s,e)=>s+e.amt,0);
+  const service=c.service?pabili*0.10:0;
+  const cashAmt=num(c.cash.amt);
+  const cashCharge=c.cash.mode==='pct'?cashAmt*num(c.cash.val)/100:num(c.cash.val);
+  const bills=c.bills.reduce((s,e)=>s+e,0);
+  const billPct=num(c.billPct);
+  const billCharge=bills*billPct/100;
+  const r={pabili,service,cashType:c.cash.type,cashAmt,cashCharge:cashAmt>0||cashCharge>0?cashCharge:0,cashMode:c.cash.mode,cashVal:num(c.cash.val),
+    bills,billPct,billCharge,fee:num(c.fee),disc:num(c.disc),hop:num(c.hop),wait:num(c.wait),other:num(c.other),otherNote:c.otherNote.trim(),
+    pabiliList:c.pabili.slice(),billList:c.bills.slice()};
+  r.goods=pabili+bills+(r.cashType==='in'?cashAmt:0);
+  r.fees=service+r.cashCharge+billCharge+r.fee+r.hop+r.wait;
+  r.total=Math.max(0,r.goods+r.fees-r.disc-r.other);
+  return r;
+}
+const STATUS_LABEL={nyp:'Not yet paid',paid:'Paid',verified:'Verified',disreg:'Disregarded'};
+const MOP_LABEL={online:'Online',cash:'Cash',split:'Split',gcash:'GCash',bpi:'BPI',bdo:'BDO'};
+const confirmed=t=>t.status==='paid'||t.status==='verified';
+/* Online money (full "online" MOP, or the online half of a "split") already lands in the business's
+   own account, so the business can pay the rider their due right away instead of waiting for the
+   NYP status to clear — it only has to wait on the cash portion, if any. */
+const effectiveConfirmed=t=>t.status!=='disreg'&&(t.mop==='cash'?confirmed(t):true);
+const cashHeld=t=>t.mop==='cash'?(t.received||0):t.mop==='split'?(t.splitCash||0):0;
+/* Delivery-fee tier: ₱70 to the rider / ₱50 to management for the first ₱120 of delivery fee,
+   then ₱8 to the rider / ₱2 to management for every ₱10 beyond that (continuous, not step-wise).
+   Below ₱120 (a discounted/custom fee) the same ₱70:₱50 ratio is applied proportionally. */
+function dfSplit(df){
+  if(df<=0)return{rider:0,mgmt:0};
+  if(df<120)return{rider:df*(70/120),mgmt:df*(50/120)};
+  const extra=df-120;
+  return{rider:70+extra*0.8,mgmt:50+extra*0.2};
+}
+/* "Other charges" = service charge + store hopping + waiting time + cash in/out charge + bill charge
+   (the same total the transaction-history CSV calls OTHER CHARGES) — split 60% rider / 40% management.
+   The general "other discount" nets against this other-charges total before its 60/40 split.
+   A delivery discount, however, is absorbed entirely by management: the rider's tier share is always
+   computed on the full, un-discounted delivery fee, and the discount is subtracted only from
+   management's share (so rider+management still equals the net amount actually charged). */
+const otherCharges=r=>(r.service||0)+(r.hop||0)+(r.wait||0)+(r.cashCharge||0)+(r.billCharge||0);
+const netOther=t=>Math.max(0,otherCharges(t.r)-(t.r.other||0));
+const earn=t=>dfSplit(t.r.fee).rider+netOther(t)*0.6+(t.tip||0);
+const mgmtEarn=t=>dfSplit(t.r.fee).mgmt-(t.r.disc||0)+netOther(t)*0.4;
+/* What the rider is owed in total: their service earning, plus a refund for any pabili/bills
+   they fronted out of pocket, minus whatever cash they're already holding from the customer. */
+const netOwed=t=>(earn(t)+t.r.pabili+t.r.bills)-cashHeld(t);
+const due=t=>effectiveConfirmed(t)&&netOwed(t)<0?-netOwed(t):0;
+const refundToRider=t=>effectiveConfirmed(t)&&netOwed(t)>0?netOwed(t):0;
+const balanceOf=t=>Math.max(0,t.r.total-(t.received||0));
+const excessOf=t=>Math.max(0,(t.received||0)-t.r.total);
+const mopLabel=t=>{
+  if(t.mop==='cash')return 'Cash';
+  if(t.mop==='split')return `Split &ndash; Cash ${peso(t.splitCash||0)} / Online ${peso(t.splitOnline||0)}${t.account?' ('+esc(cap(t.account))+')':''}`;
+  const label=MOP_LABEL[t.mop]||esc(cap(t.mop));
+  return label+(t.account?' &ndash; '+esc(cap(t.account)):'');
+};
+
+/* ---------- daily rider summary ---------- */
+const rdKey=(rider,date)=>rider+'__'+date;
+const getRiderDay=(rider,date)=>S.riderDays[rdKey(rider,date)]||null;
+function shiftDate(d,n){const dt=new Date(d+'T00:00:00');dt.setDate(dt.getDate()+n);return dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())}
+const dayTxns=(rider,date)=>S.transactions.filter(t=>t.rider===rider&&t.date===date&&t.status!=='disreg');
+const dayLedger=(rider,date)=>S.ledger.filter(e=>e.rider===rider&&e.date===date);
+function daySummary(rider,date){
+  const rec=getRiderDay(rider,date);
+  const prior=getRiderDay(rider,shiftDate(date,-1));
+  const initialBudget=rec?num(rec.initialBudget):(prior&&prior.posted?prior.closingFund:0);
+  const txs=dayTxns(rider,date),confirmedTxs=txs.filter(effectiveConfirmed);
+  const led=dayLedger(rider,date);
+  const totalFund=led.filter(e=>e.type==='fund').reduce((s,e)=>s+e.amount,0);
+  const deductions=led.filter(e=>e.type==='deduction').reduce((s,e)=>s+e.amount,0);
+  const manualTip=led.filter(e=>e.type==='tip').reduce((s,e)=>s+e.amount,0);
+  const riderEarnings=confirmedTxs.reduce((s,t)=>s+earn(t),0)+manualTip;
+  const onlineTip=confirmedTxs.filter(t=>t.mop!=='cash').reduce((s,t)=>s+(t.tip||0),0)+manualTip;
+  const managementShare=confirmedTxs.reduce((s,t)=>s+mgmtEarn(t),0);
+  /* Total dues not paid in cash — counted even while NYP, so an unpaid online order never dents
+     the rider's remit. For Split, only the online slice of the due counts here. */
+  const onlineDue=t=>t.mop==='cash'?0:t.mop==='split'?Math.max(0,t.r.total-(t.splitCash||0)):t.r.total;
+  const onlineRefund=txs.reduce((s,t)=>s+onlineDue(t),0);
+  const totalRiderFund=initialBudget+totalFund+deductions+managementShare-onlineRefund-onlineTip;
+  return{rec,posted:!!(rec&&rec.posted),initialBudget,totalFund,deductions,riderEarnings,onlineTip,managementShare,onlineRefund,totalRiderFund};
+}
+
+/* ---------- views ---------- */
+function vSyncNote(){
+  if(sync.status==='connecting')return '<p class="hint">Loading the latest shared data&hellip;</p>';
+  if(sync.status==='offline')return `<p class="err" role="alert">${esc(sync.msg||'Offline — using the last data saved on this device.')}</p>`;
+  return '';
+}
+function vSyncBadge(){
+  const map={connecting:['Connecting…','sb-wait'],online:['Synced','sb-ok'],saving:['Saving…','sb-wait'],offline:['Offline','sb-bad'],local:['Local only','sb-bad']};
+  const hit=map[sync.status];if(!hit)return'';
+  return `<span class="sb ${hit[1]}" title="${esc(sync.msg||'')}">${esc(hit[0])}</span>`;
+}
+function vLogin(){
+  const r=ui.loginRole,rs=S.settings.riders;
+  return `<main class="login"><div><h1>Dispatch &amp; Remit</h1></div><p class="sub">Choose your role, then enter your PIN.</p>${vSyncNote()}
+  <div class="seg" role="group" aria-label="Role">${['owner','admin','rider'].map(x=>`<button class="${r===x?'on':''}" data-a="lrole" data-v="${x}">${cap(x)}</button>`).join('')}</div>
+  ${r==='rider'?`<label class="f">Rider<select id="lrider">${rs.length?rs.map(x=>`<option value="${esc(x.id)}" ${ui.loginRider===x.id?'selected':''}>${esc(x.name)}</option>`).join(''):'<option value="">No riders yet. Owner adds them in Settings.</option>'}</select></label>`:''}
+  <label class="f">PIN<input id="lpin" type="password" inputmode="numeric" autocomplete="off" placeholder="Enter PIN"></label>
+  ${ui.err?`<p class="err" role="alert">${esc(ui.err)}</p>`:''}
+  <button class="btn big" data-a="login">Log in</button></main>`;
+}
+
+function vShell(){
+  const roleTxt=me.role==='rider'?'Rider: '+me.rider:cap(me.role);
+  let body='';
+  if(view==='dash')body=vDash();
+  else if(view==='bookings')body=me.role==='rider'?vRiderBookings():vBookings();
+  else if(view==='remit')body=vRemit();
+  else if(view==='paystatus')body=vPaymentStatus();
+  else if(view==='settings')body=vSettings();
+  return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
+  <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${body}`;
+}
+
+function vDash(){
+  const arrow='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  const items=[['bookings',me.role==='rider'?'My bookings':'Bookings','Dispatch, calculate and record deliveries']];
+  items.push(['remit',me.role==='rider'?'My remit':'Rider remit','Collections, rider share and CSV export']);
+  if(me.role==='owner'||me.role==='admin')items.push(['paystatus','Payment status','All customers — view, update and follow up on payments']);
+  if(me.role==='owner')items.push(['settings','Settings','PINs, riders and rider share']);
+  return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>`;
+}
+
+function vRiderBookings(){
+  const mine=S.bookings.filter(b=>b.status==='ongoing'&&b.rider===me.rider).sort(cmp);
+  return `<section class="panel green"><h2>My on-going bookings</h2>${mine.length?mine.map(b=>`<article class="bk green"><strong>${esc(b.customer)}</strong>
+  <div class="meta"><span>${fmtDate(b.date)}</span><span>${fmtTime(b.time)}</span><span>Fee ${peso(b.fee)}</span></div>${b.notes?`<p class="note">${esc(b.notes)}</p>`:'<p class="note empty">No notes for this booking.</p>'}</article>`).join(''):'<p class="empty">No on-going bookings assigned to you.</p>'}</section>`;
+}
+
+function vBookings(){
+  const t=today();
+  const pend=S.bookings.filter(b=>b.status==='pending').sort(cmp);
+  const day=pend.filter(b=>b.date<=t),later=pend.filter(b=>b.date>t);
+  const ong=S.bookings.filter(b=>b.status==='ongoing').sort(cmp);
+  return `<div class="tabs">
+  <button class="tab red" data-a="tog" data-k="pend" aria-expanded="${ui.pend}"><span>Pending</span><b>${pend.length}</b>${ico('chev')}</button>
+  <button class="tab green" data-a="tog" data-k="ongo" aria-expanded="${ui.ongo}"><span>On-going</span><b>${ong.length}</b>${ico('chev')}</button></div>
+  ${ui.pend?pPending(day,later):''}${ui.ongo?pOngoing(ong):''}${vCalc()}${vSummary()}${vHistory()}`;
+}
+const bkMeta=b=>`<div class="meta"><span>${fmtDate(b.date)}</span><span>${fmtTime(b.time)}</span><span>Fee ${peso(b.fee)}</span></div>${b.notes?`<p class="note">${esc(b.notes)}</p>`:''}`;
+function pPending(day,later){
+  const dayCard=b=>`<article class="bk red"><div><strong>${esc(b.customer)}</strong>${bkMeta(b)}</div>
+   <div class="acts">${ib(b.alarmed?'green':'red','alarm',b.id,b.alarmed?'Alarm set on separate device':'Alarm not set','bell')}
+   ${ib('purple','toOn',b.id,'Move to on-going','right')}${ib('orange','editBk',b.id,'Edit booking','pen')}${ib('red','delBk',b.id,'Delete booking','trash')}</div>
+   ${ui.alarm===b.id?`<div class="chooser"><span>Alarm set on a separate device?</span>${ib('red','alarmSet',b.id,'Not set','check','data-v="0"')}${ib('green','alarmSet',b.id,'Alarm set','x','data-v="1"')}</div>`:''}</article>`;
+  const laterCard=b=>`<article class="bk yellow"><div><strong>${esc(b.customer)}</strong>${bkMeta(b)}</div>
+   <div class="acts">${ib('orange','editBk',b.id,'Edit booking','pen')}${ib('red','delBk',b.id,'Delete booking','trash')}</div></article>`;
+  return `<section class="panel red"><button class="btn red full" data-a="addBk">+ Add booking</button>
+  <div class="grp red"><h3>Pending bookings for the day</h3></div>${day.length?day.map(dayCard).join(''):'<p class="empty">Nothing due today.</p>'}
+  <div class="grp yl"><h3>Later bookings</h3></div>${later.length?later.map(laterCard).join(''):'<p class="empty">No bookings for later dates.</p>'}</section>`;
+}
+function pOngoing(ong){
+  return `<section class="panel green"><h3>On-going bookings</h3>${ong.length?ong.map(b=>`<article class="bk green"><div><strong>${esc(b.customer)}</strong>
+  <div class="meta"><span>${fmtDate(b.date)}</span><span>Rider ${esc(b.rider||'not set')}</span><span>Fee ${peso(b.fee)}</span></div>${b.notes?`<p class="note">${esc(b.notes)}</p>`:''}</div>
+  <div class="acts">${ib('purple','toPend',b.id,'Move back to pending','left')}${ib('orange','editBk',b.id,'Edit booking','pen')}${ib('green','toCalc',b.id,'Send to calculator','calc')}${ib('red','delBk',b.id,'Delete booking','trash')}</div></article>`).join(''):'<p class="empty">No on-going bookings.</p>'}</section>`;
+}
+
+function entries(list,rmAct,isText){
+  return list.length?`<ul class="ent">${list.map((e,i)=>`<li><span>${isText?esc(e.note):'Bill '+(i+1)}</span><b class="num">${peso(isText?e.amt:e)}</b><button class="rm" data-a="${rmAct}" data-i="${i}" aria-label="Remove entry">×</button></li>`).join('')}</ul>`:'';
+}
+function vCalc(){
+  const c=calc,rs=S.settings.riders.map(r=>r.name);
+  const pTot=c.pabili.reduce((s,e)=>s+e.amt,0),bTot=c.bills.reduce((s,e)=>s+e,0);
+  const riderField=c.riderManual
+    ?`<input type="text" data-b="c.rider" value="${esc(c.rider)}" placeholder="Rider name"><button class="link" data-a="riderList">Choose from list</button>`
+    :`<select data-b="c.rider"><option value="">Select rider</option>${rs.map(n=>`<option value="${esc(n)}" ${c.rider===n?'selected':''}>${esc(n)}</option>`).join('')}<option value="__m">Write manually</option></select>`;
+  return `<section class="card" id="calc"><h2>Calculator <button class="btn ghost" data-a="calcReset">Clear</button></h2>
+  <div class="grid2"><label class="f">Date<input type="date" data-b="c.date" value="${esc(c.date)}" min="${today()}"></label>
+  <label class="f">Customer name<input type="text" data-b="c.customer" value="${esc(c.customer)}" autocomplete="off"></label></div>
+  <div class="f"><span>Assigned rider</span>${riderField}</div>
+
+  <div class="blk"><h4>Pabili entries</h4>
+   <div class="row3"><input type="number" inputmode="decimal" min="0" step="any" placeholder="Amount" data-b="c.pAmt" value="${esc(c.pAmt)}" aria-label="Pabili amount" data-enter="addP">
+   <input type="text" placeholder="Notes, e.g. 2 kg rice" data-b="c.pNote" value="${esc(c.pNote)}" aria-label="Pabili notes" data-enter="addP"><button class="btn" data-a="addP">Add</button></div>
+   ${c.pErr?`<p class="err" role="alert">${esc(c.pErr)}</p>`:''}${entries(c.pabili,'rmP',true)}
+   <div class="tot"><span>Pabili total</span><b class="num">${peso(pTot)}</b></div></div>
+
+  <div class="blk"><h4>Service charge (10%)</h4><div class="seg"><button class="${!c.service?'on':''}" data-a="svc" data-v="0">No</button><button class="${c.service?'on':''}" data-a="svc" data-v="1">Yes</button></div>
+   ${c.service?`<p class="hint num">Adds ${peso(pTot*0.1)} on the pabili total</p>`:''}</div>
+
+  <div class="blk"><button class="tab blue" data-a="tog" data-k="cash" aria-expanded="${ui.cash}"><span>Cash in / out</span>${ico('chev')}</button>
+  ${ui.cash?`<div class="sub-blk"><div class="seg"><button class="${c.cash.type==='in'?'on':''}" data-a="cashType" data-v="in">Cash in</button><button class="${c.cash.type==='out'?'on':''}" data-a="cashType" data-v="out">Cash out</button></div>
+   <label class="f">${c.cash.type==='in'?'Cash in':'Cash out'} amount<input type="number" inputmode="decimal" min="0" step="any" data-b="c.cash.amt" value="${esc(c.cash.amt)}"></label>
+   <div class="seg"><button class="${c.cash.mode==='pct'?'on':''}" data-a="cashMode" data-v="pct">Charge by %</button><button class="${c.cash.mode==='manual'?'on':''}" data-a="cashMode" data-v="manual">Manual charge</button></div>
+   <label class="f">${c.cash.mode==='pct'?'Charge percent (%)':'Charge amount (₱)'}<input type="number" inputmode="decimal" min="0" step="any" data-b="c.cash.val" value="${esc(c.cash.val)}"></label></div>`:''}</div>
+
+  <div class="blk"><button class="tab blue" data-a="tog" data-k="bills" aria-expanded="${ui.bills}"><span>Bills payment</span>${ico('chev')}</button>
+  ${ui.bills?`<div class="sub-blk"><div class="row3" style="grid-template-columns:1fr auto"><input type="number" inputmode="decimal" min="0" step="any" placeholder="Bill amount" data-b="c.billAmt" value="${esc(c.billAmt)}" aria-label="Bill amount"><button class="btn" data-a="addB">Add</button></div>
+   ${c.bErr?`<p class="err" role="alert">${esc(c.bErr)}</p>`:''}${entries(c.bills,'rmB',false)}
+   <div class="tot"><span>Total bill amount</span><b class="num">${peso(bTot)}</b></div>
+   <label class="f">+ Bill charges (%)<input type="number" inputmode="decimal" min="0" step="any" data-b="c.billPct" value="${esc(c.billPct)}"></label>
+   <p class="hint num">Bill charge: ${peso(bTot*num(c.billPct)/100)}</p></div>`:''}</div>
+
+  <div class="grid2"><label class="f">Delivery fee<input type="number" inputmode="decimal" min="0" step="any" data-b="c.fee" value="${esc(c.fee)}"></label>
+  <label class="f">Delivery discount<select data-b="c.disc"><option value="0" ${c.disc==='0'?'selected':''}>No discount</option><option value="50" ${c.disc==='50'?'selected':''}>₱50 discount</option></select></label>
+  <label class="f">Store hopping<input type="number" inputmode="decimal" min="0" step="any" data-b="c.hop" value="${esc(c.hop)}"></label>
+  <label class="f">Waiting time<input type="number" inputmode="decimal" min="0" step="any" data-b="c.wait" value="${esc(c.wait)}"></label>
+  <label class="f">Other discounts<input type="number" inputmode="decimal" min="0" step="any" data-b="c.other" value="${esc(c.other)}"></label>
+  <label class="f">Discount reason<input type="text" data-b="c.otherNote" value="${esc(c.otherNote)}" placeholder="Why the discount"></label></div>
+
+  ${c.msg?`<p class="warn" role="alert">${esc(c.msg)}</p>`:''}
+  <button class="btn big calcbtn" data-a="calculate">CALCULATE</button></section>`;
+}
+
+function vSummary(){
+  const c=calc,r=c.result;
+  if(!r)return '';
+  const L=(label,amt,neg,sub)=>`<div class="line ${neg?'neg':''}"><span>${label}${sub?`<small>${esc(sub)}</small>`:''}</span><b>${neg?'−':''}${peso(amt)}</b></div>`;
+  let rows='';
+  if(r.pabili)rows+=L('Pabili total',r.pabili);
+  if(r.service)rows+=L('Service charge (10%)',r.service);
+  if(r.cashAmt)rows+=L(r.cashType==='in'?'Cash in amount':'Cash out amount',r.cashAmt,false,r.cashType==='out'?'Handed to customer, not added to the total':'');
+  if(r.cashCharge)rows+=L('Cash '+(r.cashType==='in'?'in':'out')+' charge',r.cashCharge,false,r.cashMode==='pct'?r.cashVal+'% of '+peso(r.cashAmt):'Manual');
+  if(r.bills)rows+=L('Bills total',r.bills);
+  if(r.billCharge)rows+=L('Bill charges ('+r.billPct+'%)',r.billCharge);
+  rows+=L('Delivery fee',r.fee);
+  if(r.hop)rows+=L('Store hopping',r.hop);
+  if(r.wait)rows+=L('Waiting time',r.wait);
+  if(r.disc)rows+=L('Delivery discount',r.disc,true);
+  if(r.other)rows+=L('Other discount',r.other,true,r.otherNote);
+  const pbrk=(r.pabiliList&&r.pabiliList.length)?`<div class="pbrk"><h4>Pabili breakdown</h4><ul>${r.pabiliList.map(e=>`<li><span>${esc(e.note)}</span><b>${peso(e.amt)}</b></li>`).join('')}</ul></div>`:'';
+  return `<section class="card sum" id="summary">
+  <div id="summaryExport"><h2>Transaction summary</h2>
+  <div class="who"><span>Customer <b>${esc(c.customer.trim())}</b></span><span>Rider <b>${esc(c.rider.trim())}</b></span><span>Date <b>${fmtDate(c.date)}</b></span></div>
+  <div class="blk">${rows}</div>
+  <div class="total"><span>Total amount</span><b>${peso(r.total)}</b></div>
+  ${pbrk}</div>
+  <p class="hint">Payment details (mode of payment, amount received, status) are set afterward from the transaction's "Update payment" link in history.</p>
+  ${c.savedId?`<p class="hint" style="color:var(--green);font-weight:600">Saved to history. Find it there to set payment details, or reset below to start a new calculation.</p>`:''}
+  <div class="mbtns" style="justify-content:flex-start"><button class="btn ghost" data-a="downloadSummary">Download summary (.jpg)</button><button class="btn ghost" data-a="calcReset">Reset</button></div>
+  <button class="btn green big" data-a="saveTx" ${c.savedId?'disabled':''}>${c.savedId?'Saved ✓':'Save to history'}</button></section>`;
+}
+const receivedOf=c=>c.mop==='split'?num(c.splitCash)+num(c.splitOnline):num(c.received);
+function payFields(prefix,c,total){
+  const recv=receivedOf(c);
+  const bal=Math.max(0,total-recv);
+  const excess=Math.max(0,recv-total);
+  return `<div class="blk"><h4>Payment details</h4>
+  <div class="grid2"><label class="f">Mode of payment<select data-b="${prefix}.mop">
+   <option value="online" ${c.mop==='online'?'selected':''}>Online</option>
+   <option value="gcash" ${c.mop==='gcash'?'selected':''}>GCash</option>
+   <option value="bpi" ${c.mop==='bpi'?'selected':''}>BPI</option>
+   <option value="bdo" ${c.mop==='bdo'?'selected':''}>BDO</option>
+   <option value="cash" ${c.mop==='cash'?'selected':''}>Cash</option>
+   <option value="split" ${c.mop==='split'?'selected':''}>Split — cash + online</option></select></label>
+  ${(c.mop!=='cash'&&c.mop!=='online')?`<label class="f">Received to account<select data-b="${prefix}.account"><option value="" ${!c.account?'selected':''}>— empty —</option><option value="keem" ${c.account==='keem'?'selected':''}>Keem</option><option value="anthony" ${c.account==='anthony'?'selected':''}>Anthony</option></select></label>`:'<div></div>'}</div>
+  ${c.mop==='split'?`<div class="grid2"><label class="f">Cash amount received<input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.splitCash" value="${esc(c.splitCash)}"></label>
+  <label class="f">Online amount received<input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.splitOnline" value="${esc(c.splitOnline)}"></label></div>
+  <p class="hint num">Total received: ${peso(recv)}</p>`
+  :`<label class="f">Amount received<div style="display:flex;gap:6px;align-items:center"><input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.received" value="${esc(c.received)}" style="flex:1"><button type="button" class="btn ghost" style="padding:0 10px;min-height:38px;font-size:.8rem;flex:none" data-a="exactAmt" data-b="${prefix}.received" data-v="${total}">EXACT</button></div></label>`}
+  <label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>
+  ${bal>0?`<p class="hint num">Balance ${peso(bal)} still due from the customer.</p>`:''}
+  ${excess>0?`<p class="hint num">Amount received is ${peso(excess)} more than the total — you'll be asked whether to give it to the rider as a tip.</p>`:''}
+  ${c.mop!=='cash'?`<p class="hint">This payment is reflected in the rider's earnings/remit right away, even while status is NYP.</p>`:''}
+  ${c.mop==='online'?`<p class="hint">Received-to-account always stays empty for plain Online payments.</p>`:c.status==='nyp'?`<p class="hint">Received-to-account stays empty while status is NYP — it's set once the payment is actually confirmed.</p>`:''}
+  </div>`;
+}
+
+function txDetail(t){
+  const r=t.r,ln=(a,b)=>`<div class="line"><span>${a}</span><b>${b}</b></div>`;
+  let h='';
+  if(r.pabili)h+=ln('Pabili',peso(r.pabili));if(r.service)h+=ln('Service charge',peso(r.service));
+  if(r.cashAmt)h+=ln('Cash '+r.cashType,peso(r.cashAmt))+ln('Cash charge',peso(r.cashCharge));
+  if(r.bills)h+=ln('Bills',peso(r.bills))+ln('Bill charge',peso(r.billCharge));
+  h+=ln('Delivery fee',peso(r.fee));if(r.hop)h+=ln('Store hopping',peso(r.hop));if(r.wait)h+=ln('Waiting time',peso(r.wait));
+  if(r.disc)h+=ln('Delivery discount','−'+peso(r.disc));if(r.other)h+=ln('Other discount'+(r.otherNote?' ('+esc(r.otherNote)+')':''),'−'+peso(r.other));
+  if(r.pabiliList&&r.pabiliList.length)h+=`<div class="pbrk" style="border-top:none;padding-top:2px;margin-top:2px"><h4>Pabili breakdown</h4><ul>${r.pabiliList.map(e=>`<li><span>${esc(e.note)}</span><b>${peso(e.amt)}</b></li>`).join('')}</ul></div>`;
+  return h;
+}
+function bookingCountMap(){
+  const byDate={};
+  S.transactions.forEach(t=>{(byDate[t.date]=byDate[t.date]||[]).push(t)});
+  const map={};
+  Object.keys(byDate).forEach(d=>{byDate[d].slice().sort((a,b)=>a.ts-b.ts).forEach((t,i)=>{map[t.id]=i+1})});
+  return map;
+}
+function vHistory(){
+  const all=S.transactions.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+  const list=ui.showAll?all:all.slice(0,10);
+  const bc=bookingCountMap();
+  const canEdit=me.role==='owner'||me.role==='admin';
+  const isOwner=me.role==='owner';
+  const selCount=list.filter(t=>ui.selTx[t.id]).length;
+  const allSel=list.length>0&&selCount===list.length;
+  return `<section class="card"><h2>Transaction history${S.transactions.length?`<button class="btn ghost" data-a="historyCsv">Download history (.csv)</button>`:''}</h2>
+  ${isOwner&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
+  ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${isOwner?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
+  <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div></div></div>
+  <div class="amts"><b>${peso(t.r.total)}</b></div></div>
+  <div class="pd"><span>${mopLabel(t)}</span><span>Received <b>${peso(t.received||0)}</b></span>${bal>0?`<span>Balance <b>${peso(bal)}</b></span>`:''}${t.tip?`<span>Tip <b>${peso(t.tip)}</b></span>`:''}</div>
+  <div class="tools"><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>
+  ${canEdit?`<button class="link" data-a="editPay" data-id="${t.id}">Update payment</button>`:''}
+  <button class="link" data-a="hx" data-id="${t.id}">${ui.hx[t.id]?'Hide details':'Details'}</button>
+  ${me.role==='owner'?`<button class="link" style="color:var(--red)" data-a="delTx" data-id="${t.id}">Delete</button>`:''}</div>
+  ${ui.hx[t.id]?`<div class="txd">${txDetail(t)}</div>`:''}</li>`}).join('')}</ul>`:'<p class="empty">Saved transactions appear here.</p>'}
+  ${all.length>10?`<button class="btn ghost" data-a="showAll">${ui.showAll?'Show latest 10':'Show all '+all.length}</button>`:''}</section>`;
+}
+
+/* remit */
+function remitList(){
+  const f=ui.rem,rider=me.role==='rider'?me.rider:f.rider;
+  return S.transactions.filter(t=>t.date>=f.from&&t.date<=f.to&&(rider==='all'||t.rider===rider)&&t.status!=='disreg'&&(f.rstatus==='all'||(f.rstatus==='pending'?!t.remitted:t.remitted))).sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+}
+function remitTotals(list){
+  const paid=list.filter(effectiveConfirmed);
+  const collected=paid.reduce((s,t)=>s+(t.received||0),0),earned=paid.reduce((s,t)=>s+earn(t),0);
+  const dueAll=paid.reduce((s,t)=>s+due(t),0),done=paid.filter(t=>t.remitted).reduce((s,t)=>s+due(t),0);
+  const refund=list.reduce((s,t)=>s+refundToRider(t),0);
+  return{collected,earned,dueAll,done,balance:dueAll-done,refund};
+}
+function ledgerList(riderName){
+  const f=ui.rem;
+  return S.ledger.filter(e=>e.rider===riderName&&e.date>=f.from&&e.date<=f.to).sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+}
+function ledgerTotals(riderName){
+  const list=ledgerList(riderName);
+  const fund=list.filter(e=>e.type==='fund').reduce((s,e)=>s+e.amount,0);
+  const ded=list.filter(e=>e.type==='deduction').reduce((s,e)=>s+e.amount,0);
+  const tip=list.filter(e=>e.type==='tip').reduce((s,e)=>s+e.amount,0);
+  return{fund,ded,tip,list};
+}
+function vDailySummary(riderName){
+  if(riderName==='all')return '';
+  const canEdit=me.role!=='rider';
+  const d=ui.sumDate;
+  const sum=daySummary(riderName,d);
+  const stat=(label,val,sub,cls)=>`<div class="stat ${cls||''}"><small>${label}</small><b>${peso(val)}</b>${sub?`<span class="dsub">${sub}</span>`:''}</div>`;
+  const ibVal=ui.ibF!=null?ui.ibF:String(sum.initialBudget);
+  return `<section class="card">
+  <h2>Daily rider summary</h2>
+  <div class="dsHead"><strong>${esc(riderName)}</strong><span class="chip ${sum.posted?'disreg':'verified'}">${sum.posted?'POSTED · locked':'OPEN · editing allowed'}</span></div>
+  <div class="grid2">
+   <label class="f">Summary date<input type="date" data-b="ui.sumDate" data-rr="1" value="${d}"></label>
+   <div class="f"><span>Rider</span><input type="text" value="${esc(riderName)}" disabled></div>
+  </div>
+  <div class="blk"><h4>Initial budget</h4>
+  ${canEdit&&!sum.posted?`<div class="grid2"><input type="number" inputmode="decimal" step="any" data-b="ui.ibF" value="${esc(ibVal)}"><button class="btn" data-a="saveInitBudget" data-rider="${esc(riderName)}">Save</button></div>`
+    :`<p class="hint num">${peso(sum.initialBudget)}${sum.posted?' (locked — day has been posted)':''}</p>`}
+  </div>
+  <div class="stats">
+   ${stat('Total fund',sum.totalFund)}
+   ${stat('Rider earnings',sum.riderEarnings,'Includes '+peso(sum.onlineTip)+' online tips')}
+   ${stat('Total online tip',sum.onlineTip)}
+   ${stat('Management share',sum.managementShare)}
+   ${stat('Total online refund',sum.onlineRefund,'Dues not paid in cash — counted even if still NYP')}
+   ${stat('Deductions',sum.deductions)}
+   ${stat('Total rider fund',sum.totalRiderFund,'Initial budget + Total fund + Deductions + Management share − Total online refund − Online tip','wide hl')}
+  </div>
+  ${canEdit?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:''}
+  </section>`;
+}
+function vLedgerCard(riderName){
+  const canEdit=me.role!=='rider';
+  if(riderName==='all')return `<section class="card"><h2>Rider fund &amp; deductions</h2><p class="empty">Select a single rider above to add or view fund and deduction entries.</p></section>`;
+  const{fund,ded,tip,list}=ledgerTotals(riderName);
+  const fundEntries=list.filter(e=>e.type==='fund'),dedEntries=list.filter(e=>e.type==='deduction'),tipEntries=list.filter(e=>e.type==='tip');
+  const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
+  return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
+  <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div></div>
+  <div class="blk"><h4>Add fund</h4>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
+  <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
+  <label class="f">Note<input type="text" data-b="fundF.note" value="${esc(ui.fundF.note)}" placeholder="Reason for this fund"></label>
+  ${ui.fundF.err?`<p class="err" role="alert">${esc(ui.fundF.err)}</p>`:''}
+  <button class="btn" data-a="addFund">Add fund</button>`:''}
+  ${fundEntries.length?`<div>${fundEntries.map(entryRow).join('')}</div>`:'<p class="empty">No fund entries in this date range.</p>'}</div>
+  <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit.</p>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="dedF.date" value="${esc(ui.dedF.date)}"></label>
+  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="dedF.amt" value="${esc(ui.dedF.amt)}"></label></div>
+  <label class="f">Note<input type="text" data-b="dedF.note" value="${esc(ui.dedF.note)}" placeholder="Reason for this deduction"></label>
+  ${ui.dedF.err?`<p class="err" role="alert">${esc(ui.dedF.err)}</p>`:''}
+  <button class="btn orange" data-a="addDed">Add deduction</button>`:''}
+  ${dedEntries.length?`<div>${dedEntries.map(entryRow).join('')}</div>`:'<p class="empty">No deductions in this date range.</p>'}</div>
+  <div class="blk"><h4>Tip</h4><p class="hint">Add a tip manually, outside of a specific transaction's overpayment. Counted in Rider Earnings and Total Online Tip.</p>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="tipF.date" value="${esc(ui.tipF.date)}"></label>
+  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="tipF.amt" value="${esc(ui.tipF.amt)}"></label></div>
+  <label class="f">Note<input type="text" data-b="tipF.note" value="${esc(ui.tipF.note)}" placeholder="Reason for this tip"></label>
+  ${ui.tipF.err?`<p class="err" role="alert">${esc(ui.tipF.err)}</p>`:''}
+  <button class="btn green" data-a="addTip">Add tip</button>`:''}
+  ${tipEntries.length?`<div>${tipEntries.map(entryRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
+  </section>`;
+}
+function vRemit(){
+  const f=ui.rem,list=remitList(),T=remitTotals(list),canEdit=me.role!=='rider';
+  const riderSel=me.role==='rider'?me.rider:f.rider;
+  const ded=riderSel==='all'?0:ledgerTotals(riderSel).ded;
+  const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
+  return `${vDailySummary(riderSel)}<section class="card"><h2>${me.role==='rider'?'My remit':'Rider remit'}</h2>
+  <div class="grid2">${me.role==='rider'?'':`<label class="f">Rider<select data-b="r.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`}
+  <label class="f">Remit status<select data-b="r.rstatus" data-rr="1"><option value="all" ${f.rstatus==='all'?'selected':''}>All</option><option value="pending" ${f.rstatus==='pending'?'selected':''}>Not yet remitted</option><option value="done" ${f.rstatus==='done'?'selected':''}>Remitted</option></select></label>
+  <label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>
+  <div class="stats"><div class="stat"><small>Collected (paid/verified)</small><b>${peso(T.collected)}</b></div><div class="stat"><small>Rider earnings</small><b>${peso(T.earned)}</b></div><div class="stat"><small>Balance to remit</small><b>${peso(T.balance+ded)}</b></div>${T.refund>0?`<div class="stat"><small>${me.role==='rider'?'Refund owed to you (online, NYP)':'Refund owed to rider (online, NYP)'}</small><b>${peso(T.refund)}</b></div>`:''}</div>
+  <p class="hint num">Remit due ${peso(T.dueAll+ded)}, already remitted ${peso(T.done)}${ded>0?`, including ${peso(ded)} in deductions`:''}. Disregarded transactions are excluded; only Paid or Verified count toward collections.</p>
+  <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button>${canEdit&&list.some(t=>effectiveConfirmed(t)&&!t.remitted)?'<button class="btn ghost" data-a="rmtAll">Mark listed as remitted</button>':''}</div>
+  ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
+  <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${me.role==='rider'?simpleMop:mopLabel(t)}</span></div></div>
+  <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
+  <div class="pd">${me.role==='rider'?`<span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>`:`<span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>`}${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
+  ${canEdit&&effectiveConfirmed(t)?`<label class="ck"><input type="checkbox" data-a="rmt" data-id="${t.id}" ${t.remitted?'checked':''}> Remitted</label>`:(t.remitted?'<span class="chip paid">Remitted</span>':'')}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
+  ${vLedgerCard(riderSel)}`;
+}
+
+/* payment status */
+function payList(){
+  const f=ui.pay,q=f.q.trim().toLowerCase(),nq=f.notesQ.trim().toLowerCase();
+  const anyStatus=Object.values(f.statusSel).some(Boolean);
+  return S.transactions.filter(t=>
+    (!f.from||t.date>=f.from)&&(!f.to||t.date<=f.to)&&
+    (f.rider==='all'||t.rider===f.rider)&&
+    (!q||t.customer.toLowerCase().includes(q))&&
+    (!nq||(t.notes||'').toLowerCase().includes(nq))&&
+    (!anyStatus||f.statusSel[t.status])
+  ).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+}
+function vPaymentStatus(){
+  const f=ui.pay,list=payList();
+  const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
+  const selCount=list.filter(t=>ui.selPay[t.id]).length;
+  const allSel=list.length>0&&selCount===list.length;
+  const row=t=>{const bal=balanceOf(t);return `<tr class="${t.status==='disreg'?'disreg-row':''}">
+    <td><input type="checkbox" class="bigchk" data-a="selPay" data-id="${t.id}" ${ui.selPay[t.id]?'checked':''} aria-label="Select"></td>
+    <td>${fmtDate(t.date)}</td>
+    <td>${esc(t.customer)}</td>
+    <td>${esc(t.rider)}</td>
+    <td class="num">${peso(t.r.total)}</td>
+    <td class="num">${peso(t.received||0)}</td>
+    <td class="num" style="${bal>0?'color:var(--red);font-weight:700':''}">${peso(bal)}</td>
+    <td>${t.mop==='split'?'Split':(MOP_LABEL[t.mop]||cap(t.mop))}</td>
+    <td>${t.mop!=='cash'&&t.account?cap(t.account):'&mdash;'}</td>
+    <td class="notes-cell">${t.notes?esc(t.notes):'<span class="empty-inline">&mdash;</span>'}</td>
+    <td><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span></td>
+    <td><button class="link" data-a="editPay" data-id="${t.id}">Update</button></td>
+  </tr>`};
+  return `<section class="card"><h2>Payment status</h2><p class="hint">Every customer booking in one list — update payment details, add follow-up notes, or export a list to send for collection.</p>
+  <div class="grid2">
+   <label class="f">Rider<select data-b="pay.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>
+   <label class="f">Customer search<input type="text" data-b="pay.q" data-rr="1" value="${esc(f.q)}" placeholder="Type a name"></label>
+   <label class="f">Notes search<input type="text" data-b="pay.notesQ" data-rr="1" value="${esc(f.notesQ)}" placeholder="Search notes"></label>
+   <label class="f">From<input type="date" data-b="pay.from" data-rr="1" value="${f.from}"></label>
+   <label class="f">To<input type="date" data-b="pay.to" data-rr="1" value="${f.to}"></label>
+  </div>
+  <div class="f" style="margin-top:4px"><span>Status</span>
+   <div class="statusfilter">${Object.keys(STATUS_LABEL).map(k=>`<label class="ck"><input type="checkbox" class="bigchk" data-a="togPayStatus" data-k="${k}" ${f.statusSel[k]?'checked':''}> ${STATUS_LABEL[k]}</label>`).join('')}</div>
+  </div>
+  <div class="tools" style="margin-top:10px">
+   <button class="btn green" data-a="addPayNew">+ Add record</button>
+   <button class="btn blue" data-a="downloadPayStatus">Download list (.jpeg)</button>
+   <button class="btn ghost" data-a="payCsv">Export .csv</button>
+   <label class="ck"><input type="checkbox" class="bigchk" data-a="selAllPay" ${allSel?'checked':''}> Select all</label>
+   ${selCount?`<button class="btn red" data-a="delSelPay">Delete selected (${selCount})</button>`:''}
+  </div>
+  ${list.length?`<div class="dtable"><table><thead><tr>
+   <th></th><th>Date</th><th>Customer</th><th>Rider</th><th>Amount due</th><th>Received</th><th>Balance</th><th>MOP</th><th>Account</th><th>Notes</th><th>Status</th><th></th>
+  </tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>
+  <p class="hint">${list.length} record${list.length===1?'':'s'} shown.</p>`:'<p class="empty">No customers match these filters.</p>'}
+  </section>`;
+}
+async function downloadPayStatusImage(){
+  const list=payList();
+  if(!list.length){toast('Nothing to export — adjust the filters.');return}
+  if(typeof html2canvas==='undefined'){toast('Image export is still loading — try again in a moment.');return}
+  const f=ui.pay;
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;background:#fff;padding:22px;width:720px;font-family:Figtree,system-ui,sans-serif;color:#141C26';
+  const totalDue=list.reduce((s,t)=>s+t.r.total,0);
+  wrap.innerHTML=`<h2 style="font-family:'Bricolage Grotesque',sans-serif;margin:0 0 4px">Transaction history</h2>
+  <p style="margin:0 0 14px;color:#586577;font-size:.85rem">${f.rider!=='all'?'Rider: '+esc(f.rider)+' &middot; ':''}${f.from||f.to?'Date: '+(f.from||'start')+' to '+(f.to||'today')+' &middot; ':''}${new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</p>
+  <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+   <thead><tr style="text-align:left;border-bottom:2px solid #141C26">
+    <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Customer</th><th style="padding:6px 8px">Rider</th><th style="padding:6px 8px;text-align:right">Amount due</th><th style="padding:6px 8px">Notes</th>
+   </tr></thead>
+   <tbody>${list.map(t=>`<tr style="border-bottom:1px solid #D3DAE3">
+     <td style="padding:6px 8px">${fmtDate(t.date)}</td>
+     <td style="padding:6px 8px">${esc(t.customer)}</td>
+     <td style="padding:6px 8px">${esc(t.rider)}</td>
+     <td style="padding:6px 8px;text-align:right">${peso(t.r.total)}</td>
+     <td style="padding:6px 8px">${t.notes?esc(t.notes):''}</td>
+   </tr>`).join('')}</tbody>
+   <tfoot><tr style="border-top:2px solid #141C26;font-weight:700">
+     <td style="padding:8px 8px" colspan="3">Total</td>
+     <td style="padding:8px 8px;text-align:right">${peso(totalDue)}</td>
+     <td style="padding:8px 8px"></td>
+   </tr></tfoot>
+  </table>`;
+  document.body.appendChild(wrap);
+  let canvas;
+  try{canvas=await html2canvas(wrap,{backgroundColor:'#ffffff',scale:2})}
+  catch(e){toast('Could not create the image.');document.body.removeChild(wrap);return}
+  document.body.removeChild(wrap);
+  canvas.toBlob(async blob=>{
+    if(!blob){toast('Could not create the image.');return}
+    const name='payment-status_'+today()+'.jpg';
+    let dl=null;
+    try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+    if(!dl){fallbackSave(blob,name);return}
+    try{await dl.save({filename:name,data:blob});toast('Payment list image ready')}
+    catch(e){
+      if(e&&e.code==='declined')return;
+      if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}
+      fallbackSave(blob,name);
+    }
+  },'image/jpeg',0.92);
+}
+
+/* settings */
+const TIMEZONES=[
+  ['Asia/Manila','Philippines (Manila) — UTC+8'],
+  ['Asia/Singapore','Singapore — UTC+8'],
+  ['Asia/Hong_Kong','Hong Kong — UTC+8'],
+  ['Asia/Shanghai','China (Shanghai) — UTC+8'],
+  ['Asia/Tokyo','Japan (Tokyo) — UTC+9'],
+  ['Asia/Seoul','South Korea (Seoul) — UTC+9'],
+  ['Asia/Jakarta','Indonesia (Jakarta) — UTC+7'],
+  ['Asia/Bangkok','Thailand (Bangkok) — UTC+7'],
+  ['Asia/Kolkata','India (Kolkata) — UTC+5:30'],
+  ['Asia/Dubai','UAE (Dubai) — UTC+4'],
+  ['Europe/London','United Kingdom (London)'],
+  ['Europe/Paris','Central Europe (Paris)'],
+  ['America/New_York','US Eastern (New York)'],
+  ['America/Chicago','US Central (Chicago)'],
+  ['America/Denver','US Mountain (Denver)'],
+  ['America/Los_Angeles','US Pacific (Los Angeles)'],
+  ['Australia/Sydney','Australia (Sydney)'],
+  ['Pacific/Auckland','New Zealand (Auckland)'],
+  ['UTC','UTC']
+];
+function vSettings(){
+  const s=S.settings;
+  return `<section class="card"><h2>Time zone</h2>
+  <p class="hint">Used to decide what "today" means for bookings and the payment status list. Set to the Philippines by default.</p>
+  <label class="f">Time zone<select data-b="s.timezone">${TIMEZONES.map(([v,l])=>`<option value="${v}" ${s.timezone===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
+  </section>
+  <section class="card"><h2>Login PINs</h2>
+  <label class="f">Owner PIN<input id="sOwner" type="text" inputmode="numeric" value="${esc(s.ownerPin)}"></label>
+  <label class="f">Admin PIN<input id="sAdmin" type="text" inputmode="numeric" value="${esc(s.adminPin)}"></label>
+  <button class="btn orange" data-a="savePins">Save PINs</button></section>
+  <section class="card"><h2>Riders</h2>
+  ${s.riders.length?`<div>${s.riders.map(r=>`<div class="rowr"><div><strong>${esc(r.name)}</strong><div class="meta"><span>PIN ${esc(r.pin)}</span></div></div>${ib('orange','editRider',r.id,'Change PIN','pen')}${ib('red','delRider',r.id,'Remove rider','trash')}</div>`).join('')}</div>`:'<p class="empty">No riders yet. Add the first one below.</p>'}
+  <div class="grid2"><label class="f">Rider name<input id="rName" type="text" autocomplete="off"></label><label class="f">Rider PIN<input id="rPin" type="text" inputmode="numeric" autocomplete="off"></label></div>
+  <p class="err" id="sErr" role="alert"></p>
+  <button class="btn green" data-a="addRider">Add rider</button></section>`;
+}
+
+/* modal */
+function riderSel(cur,sid,mid){
+  const names=S.settings.riders.map(r=>r.name),man=cur&&!names.includes(cur);
+  return `<select id="${sid}"><option value="">Select rider</option>${names.map(n=>`<option value="${esc(n)}" ${n===cur?'selected':''}>${esc(n)}</option>`).join('')}<option value="__m" ${man?'selected':''}>Write manually</option></select>
+  <input id="${mid}" type="text" placeholder="Rider name" value="${man?esc(cur):''}" style="${man?'':'display:none'}">`;
+}
+const readRider=(s,m)=>{const v=$('#'+s).value;return v==='__m'?$('#'+m).value.trim():v};
+function vModal(){
+  const m=ui.modal;if(!m)return '';
+  let body='';
+  if(m.type==='bk'){
+    const b=m.id?S.bookings.find(x=>x.id===m.id):null,ong=b&&b.status==='ongoing';
+    body=`<h3>${b?'Edit booking':'Add booking'}</h3>
+    <label class="f">Date<input id="mDate" type="date" value="${b?b.date:today()}" ${b?'':`min="${today()}"`}></label>
+    ${b?'':'<p class="hint">Bookings can only be logged for today or a later date.</p>'}
+    <label class="f">Customer name<input id="mCust" type="text" autocomplete="off" value="${b?esc(b.customer):''}"></label>
+    <label class="f">Time<input id="mTime" type="time" value="${b?esc(b.time||''):''}"></label>
+    <label class="f">Delivery fee<input id="mFee" type="number" inputmode="decimal" min="0" step="any" value="${b?b.fee:120}"></label>
+    ${ong?`<div class="f"><span>Assigned rider</span>${riderSel(b.rider,'mrs','mrm')}</div>`:''}
+    <label class="f">Notes<textarea id="mNotes" rows="2">${b?esc(b.notes):''}</textarea></label>
+    <p class="err" id="mErr" role="alert"></p>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn ${b?'orange':'red'}" data-a="saveBk" data-id="${m.id||''}">${b?(ong?'Save':'Update'):'Save booking'}</button></div>`;
+  }else if(m.type==='assign'){
+    const b=S.bookings.find(x=>x.id===m.id);
+    body=`<h3>Assign a rider</h3><p class="hint">${esc(b?b.customer:'')}</p><div class="f"><span>Assigned rider</span>${riderSel(b&&b.rider||'','mrs','mrm')}</div>
+    <p class="err" id="mErr" role="alert"></p><div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn purple" data-a="doAssign" data-id="${m.id}">Move to on-going</button></div>`;
+  }else if(m.type==='confirm'){
+    body=`<h3>${esc(m.title)}</h3><p>${esc(m.msg)}</p><div class="mbtns"><button class="btn ghost" data-a="mclose">Keep it</button><button class="btn red" data-a="${m.yes}" data-id="${m.id}">Delete</button></div>`;
+  }else if(m.type==='rider'){
+    const r=S.settings.riders.find(x=>x.id===m.id);
+    body=`<h3>Change PIN for ${esc(r?r.name:'')}</h3><label class="f">New PIN<input id="npin" type="text" inputmode="numeric" value="${esc(r?r.pin:'')}"></label><p class="err" id="mErr" role="alert"></p>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveRiderPin" data-id="${m.id}">Save PIN</button></div>`;
+  }else if(m.type==='pay'){
+    const t=S.transactions.find(x=>x.id===m.id);
+    body=`<h3>Update payment</h3><p class="hint">${esc(t?t.customer:'')} &middot; Total ${peso(t?t.r.total:0)}</p>
+    ${payFields('m',m,t?t.r.total:0)}
+    <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveEditPay" data-id="${m.id}">Save payment</button></div>`;
+  }else if(m.type==='addPay'){
+    const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
+    const riderField=m.riderManual
+      ?`<input type="text" data-b="m.rider" value="${esc(m.rider)}" placeholder="Rider name"><button type="button" class="link" data-a="addPayRiderList">Choose from list</button>`
+      :`<select data-b="m.rider"><option value="">Select rider</option>${names.map(n=>`<option value="${esc(n)}" ${m.rider===n?'selected':''}>${esc(n)}</option>`).join('')}<option value="__m">Write manually</option></select>`;
+    body=`<h3>Add a payment record</h3><p class="hint">For an existing customer and date you haven't logged here yet — e.g. a past-due balance from before you started using this list.</p>
+    <div class="grid2"><label class="f">Date<input type="date" data-b="m.date" value="${esc(m.date)}"></label>
+    <label class="f">Amount due<input type="number" inputmode="decimal" min="0" step="any" data-b="m.amount" value="${esc(m.amount)}"></label></div>
+    <label class="f">Customer name<input type="text" data-b="m.customer" value="${esc(m.customer)}" autocomplete="off"></label>
+    <div class="f"><span>Rider</span>${riderField}</div>
+    ${payFields('m',m,num(m.amount)||0)}
+    <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
+    <p class="err" id="mErr" role="alert"></p>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveAddPay">Add record</button></div>`;
+  }else if(m.type==='tip'){
+    body=`<h3>Excess payment received</h3><p>The amount received is ${peso(m.excess)} more than the total due. Give the excess to the rider as a tip, added to their earnings?</p>
+    <div class="mbtns"><button class="btn ghost" data-a="${m.no}">No, keep as collection</button><button class="btn green" data-a="${m.yes}">Yes, add as tip</button></div>`;
+  }else if(m.type==='csv'){
+    body=`<h3>Copy the CSV</h3><p class="hint">Saving files isn't available in this view. Copy this text into a file that ends in .csv.</p><textarea rows="10" readonly onfocus="this.select()">${esc(m.text)}</textarea><div class="mbtns"><button class="btn" data-a="mclose">Close</button></div>`;
+  }
+  return `<div class="ov" data-a="mclose" data-ov="1"><div class="md" role="dialog" aria-modal="true">${body}</div></div>`;
+}
+
+/* ---------- render ---------- */
+function render(){
+  $('#app').innerHTML=(me?vShell():vLogin())+vModal();
+}
+
+/* ---------- csv ---------- */
+const q=v=>{v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+const m2=n=>(Math.round(n*100)/100).toFixed(2);
+function buildCsv(){
+  const list=remitList();
+  const H=['Date','Customer','Rider','MOP','Cash received','Online received','Account','Status','Pabili','Service charge','Cash in/out type','Cash in/out amount','Cash in/out charge','Bills total','Bill charge','Delivery fee','Store hopping','Waiting time','Delivery discount','Other discount','Discount reason','Total','Amount received','Balance','Tip to rider','Rider earning','Remit due','Refund to rider','Remitted'];
+  const rows=list.map(t=>{const r=t.r;const ec=effectiveConfirmed(t);
+    const cashRecv=t.mop==='cash'?t.received||0:t.mop==='split'?t.splitCash||0:0;
+    const onlineRecv=t.mop==='split'?t.splitOnline||0:t.mop!=='cash'?t.received||0:0;
+    return[t.date,t.customer,t.rider,MOP_LABEL[t.mop]||t.mop,m2(cashRecv),m2(onlineRecv),t.mop!=='cash'?cap(t.account||''):'',STATUS_LABEL[t.status],m2(r.pabili),m2(r.service),r.cashAmt?r.cashType:'',m2(r.cashAmt),m2(r.cashCharge),m2(r.bills),m2(r.billCharge),m2(r.fee),m2(r.hop),m2(r.wait),m2(r.disc),m2(r.other),r.otherNote,m2(r.total),m2(t.received||0),m2(balanceOf(t)),m2(t.tip||0),m2(ec?earn(t):0),m2(due(t)),m2(refundToRider(t)),ec?(t.remitted?'Yes':'No'):''].map(q).join(',')});
+  const T=remitTotals(list);
+  const totalRow=new Array(H.length).fill('');
+  totalRow[0]='TOTAL (effectively confirmed only)';totalRow[22]=m2(T.collected);totalRow[25]=m2(T.earned);totalRow[26]=m2(T.dueAll);totalRow[27]=m2(T.refund);
+  rows.push(totalRow.map(q).join(','));
+  return [H.map(q).join(',')].concat(rows).join('\r\n');
+}
+async function exportCsv(){
+  const text=buildCsv(),f=ui.rem;
+  const name='rider-remit_'+f.from+(f.to!==f.from?'_to_'+f.to:'')+'.csv';
+  let dl=null;
+  try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+  if(!dl){ui.modal={type:'csv',text};render();return}
+  try{await dl.save({filename:name,data:text});toast('CSV ready')}
+  catch(e){if(e&&e.code==='declined')return;if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}ui.modal={type:'csv',text};render()}
+}
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDateCsv(d){try{const dt=new Date(d+'T00:00:00');return pad(dt.getDate())+'-'+MON[dt.getMonth()]+'-'+String(dt.getFullYear()).slice(-2)}catch(e){return d}}
+function buildHistoryCsv(){
+  const list=S.transactions.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+  const H=['Date','Name','Rider','DF','OTHER CHARGES','MOP','Amount','Received Amount','Account Paid','Status'];
+  const rows=list.map(t=>{const r=t.r,other=(r.service||0)+(r.hop||0)+(r.wait||0)+(r.cashCharge||0)+(r.billCharge||0);
+    return[fmtDateCsv(t.date),t.customer,t.rider,m2(r.fee),other?m2(other):'',(MOP_LABEL[t.mop]||t.mop).toUpperCase(),m2(r.total),t.received?m2(t.received):'',t.account?t.account.toUpperCase():'',t.status.toUpperCase()].map(q).join(',')});
+  return [H.map(q).join(',')].concat(rows).join('\r\n');
+}
+async function exportHistoryCsv(){
+  const text=buildHistoryCsv();
+  const name='transaction-history_'+today()+'.csv';
+  let dl=null;
+  try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+  if(!dl){ui.modal={type:'csv',text};render();return}
+  try{await dl.save({filename:name,data:text});toast('CSV ready')}
+  catch(e){if(e&&e.code==='declined')return;if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}ui.modal={type:'csv',text};render()}
+}
+function buildPayCsv(){
+  const list=payList();
+  const H=['Date','Customer','Rider','Amount due','Payment received','Balance','Mode of payment','Account received','Notes','Status'];
+  const rows=list.map(t=>{const bal=balanceOf(t);
+    return[fmtDateCsv(t.date),t.customer,t.rider,m2(t.r.total),m2(t.received||0),m2(bal),t.mop==='split'?'Split':(MOP_LABEL[t.mop]||t.mop),t.mop!=='cash'&&t.account?cap(t.account):'',t.notes||'',STATUS_LABEL[t.status]].map(q).join(',')});
+  return [H.map(q).join(',')].concat(rows).join('\r\n');
+}
+async function exportPayCsv(){
+  const list=payList();
+  if(!list.length){toast('Nothing to export — adjust the filters.');return}
+  const text=buildPayCsv();
+  const name='payment-status_'+today()+'.csv';
+  let dl=null;
+  try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+  if(!dl){ui.modal={type:'csv',text};render();return}
+  try{await dl.save({filename:name,data:text});toast('CSV ready')}
+  catch(e){if(e&&e.code==='declined')return;if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}ui.modal={type:'csv',text};render()}
+}
+function slug(s){return String(s||'').trim().replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'')||'customer'}
+function fallbackSave(blob,name){
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function downloadSummaryImage(){
+  const el=$('#summaryExport');
+  if(!el){toast('Calculate a transaction first.');return}
+  if(typeof html2canvas==='undefined'){toast('Image export is still loading — try again in a moment.');return}
+  let canvas;
+  try{canvas=await html2canvas(el,{backgroundColor:getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()||'#ffffff',scale:2})}
+  catch(e){toast('Could not create the image.');return}
+  canvas.toBlob(async blob=>{
+    if(!blob){toast('Could not create the image.');return}
+    const name='receipt-'+slug(calc.customer)+'-'+calc.date+'.jpg';
+    let dl=null;
+    try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+    if(!dl){fallbackSave(blob,name);return}
+    try{await dl.save({filename:name,data:blob});toast('Summary image ready')}
+    catch(e){
+      if(e&&e.code==='declined')return;
+      if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}
+      fallbackSave(blob,name);
+    }
+  },'image/jpeg',0.92);
+}
+
+/* ---------- actions ---------- */
+function setPath(path,val){
+  const p=path.split('.');
+  let o=p[0]==='c'?calc:p[0]==='m'?ui.modal:p[0]==='fundF'?ui.fundF:p[0]==='dedF'?ui.dedF:p[0]==='tipF'?ui.tipF:p[0]==='pay'?ui.pay:p[0]==='s'?S.settings:p[0]==='ui'?ui:ui.rem;
+  for(let i=1;i<p.length-1;i++)o=o[p[i]];
+  o[p[p.length-1]]=val;
+}
+function closeModal(){ui.modal=null}
+function delBooking(id){S.bookings=S.bookings.filter(b=>b.id!==id);persist()}
+
+function act(a,el,ev){
+  const id=el.dataset.id,v=el.dataset.v,k=el.dataset.k,i=+el.dataset.i;
+  switch(a){
+  case 'lrole':ui.loginRole=v;ui.err='';break;
+  case 'login':{
+    const pin=($('#lpin').value||'').trim().replace(/^#/,'');
+    const clean=x=>String(x).trim().replace(/^#/,'');
+    if(ui.loginRole==='owner'){if(pin&&pin===clean(S.settings.ownerPin)){me={role:'owner'}}}
+    else if(ui.loginRole==='admin'){if(pin&&pin===clean(S.settings.adminPin)){me={role:'admin'}}}
+    else{const rid=$('#lrider')?$('#lrider').value:'';const r=S.settings.riders.find(x=>x.id===rid);ui.loginRider=rid;if(r&&pin&&pin===clean(r.pin)){me={role:'rider',rider:r.name}}}
+    if(me){view='dash';ui.err=''}else ui.err=ui.loginRole==='rider'&&!S.settings.riders.length?'No riders have been added yet.':'That PIN does not match. Check it and try again.';
+    break;}
+  case 'logout':me=null;view='login';ui.modal=null;calc=newCalc();break;
+  case 'nav':view=v;break;
+  case 'tog':ui[k]=!ui[k];break;
+  case 'mclose':if(el.dataset.ov&&ev&&ev.target!==el)return;closeModal();break;
+
+  /* bookings */
+  case 'addBk':ui.modal={type:'bk'};break;
+  case 'editBk':ui.modal={type:'bk',id};break;
+  case 'saveBk':{
+    const cust=$('#mCust').value.trim(),date=$('#mDate').value;
+    if(!cust||!date){$('#mErr').textContent='Enter the customer name and date.';return}
+    const b=id?S.bookings.find(x=>x.id===id):null;
+    if(!b&&date<today()){$('#mErr').textContent='Booking date cannot be before today.';return}
+    const data={date,customer:cust,time:$('#mTime').value,fee:num($('#mFee').value),notes:$('#mNotes').value.trim()};
+    if(b){if(b.status==='ongoing'){const rd=readRider('mrs','mrm');if(!rd){$('#mErr').textContent='Choose or write the rider.';return}data.rider=rd}Object.assign(b,data)}
+    else S.bookings.push(Object.assign({id:uid(),status:'pending',rider:'',alarmed:false},data));
+    persist();closeModal();toast(b?'Booking updated':'Booking saved');break;}
+  case 'delBk':{const b=S.bookings.find(x=>x.id===id);ui.modal={type:'confirm',title:'Delete this booking?',msg:(b?b.customer:'')+' will be removed.',yes:'delBkYes',id};break;}
+  case 'delBkYes':delBooking(id);closeModal();toast('Booking deleted');break;
+  case 'alarm':ui.alarm=ui.alarm===id?null:id;break;
+  case 'alarmSet':{const b=S.bookings.find(x=>x.id===id);if(b){b.alarmed=v==='1';persist()}ui.alarm=null;break;}
+  case 'toOn':ui.modal={type:'assign',id};break;
+  case 'doAssign':{const rd=readRider('mrs','mrm');if(!rd){$('#mErr').textContent='Choose or write the rider.';return}
+    const b=S.bookings.find(x=>x.id===id);if(b){b.status='ongoing';b.rider=rd;b.alarmed=false;persist()}closeModal();ui.ongo=true;toast('Moved to on-going');break;}
+  case 'toPend':{const b=S.bookings.find(x=>x.id===id);if(b){b.status='pending';persist()}ui.pend=true;toast('Moved to pending');break;}
+  case 'toCalc':{const b=S.bookings.find(x=>x.id===id);if(!b)return;
+    calc=newCalc();calc.date=b.date;calc.customer=b.customer;calc.fee=String(b.fee);calc.bookingId=b.id;
+    if(S.settings.riders.some(r=>r.name===b.rider))calc.rider=b.rider;else if(b.rider){calc.rider=b.rider;calc.riderManual=true}
+    render();$('#calc').scrollIntoView({behavior:'smooth',block:'start'});toast('Sent to calculator');return;}
+
+  /* calculator */
+  case 'riderList':calc.riderManual=false;calc.rider='';break;
+  case 'addP':{const amt=num(calc.pAmt),note=calc.pNote.trim();
+    if(!(amt>0)){calc.pErr='Enter an amount before adding.';break}
+    if(!note){calc.pErr='Add a note for this amount.';break}
+    calc.pabili.push({amt,note});calc.pAmt='';calc.pNote='';calc.pErr='';
+    setTimeout(()=>{const f=document.querySelector('[data-b="c.pAmt"]');if(f)f.focus()},0);
+    break;}
+  case 'rmP':calc.pabili.splice(i,1);break;
+  case 'svc':calc.service=v==='1';break;
+  case 'cashType':calc.cash.type=v;break;
+  case 'cashMode':calc.cash.mode=v;break;
+  case 'addB':{const amt=num(calc.billAmt);if(!(amt>0)){calc.bErr='Enter a bill amount before adding.';break}calc.bills.push(amt);calc.billAmt='';calc.bErr='';break;}
+  case 'rmB':calc.bills.splice(i,1);break;
+  case 'exactAmt':setPath(el.dataset.b,el.dataset.v);break;
+  case 'calcReset':calc=newCalc();break;
+  case 'calculate':{
+    calc.msg='';
+    if(calc.date<today()){calc.msg='The date cannot be before today.';calc.result=null;break}
+    if(!calc.customer.trim()||!calc.rider.trim()){calc.msg='Please check customer name or assigned rider details!';calc.result=null;break}
+    if(num(calc.pAmt)>0){calc.msg='Tap Add to include the pabili amount, or clear it.';calc.result=null;break}
+    if(num(calc.billAmt)>0){calc.msg='Tap Add to include the bill amount, or clear it.';calc.result=null;break}
+    if(num(calc.other)>0&&!calc.otherNote.trim()){calc.msg='Add the reason for the other discount.';calc.result=null;break}
+    calc.result=compute(calc);calc.savedId=null;render();const s=$('#summary');if(s)s.scrollIntoView({behavior:'smooth',block:'start'});return;}
+  case 'saveTx':{if(!calc.result||calc.savedId)return;
+    if(calc.date<today()){calc.msg='The date cannot be before today.';calc.result=null;break}
+    const txId=uid();
+    S.transactions.push({id:txId,ts:Date.now(),date:calc.date,customer:calc.customer.trim(),rider:calc.rider.trim(),r:calc.result,
+      mop:'online',account:'',received:0,splitCash:0,splitOnline:0,status:'nyp',tip:0,remitted:false,notes:''});
+    if(calc.bookingId)S.bookings=S.bookings.filter(b=>b.id!==calc.bookingId);
+    calc.savedId=txId;
+    persist();toast('Saved to history — set payment details from the history list');break;}
+  case 'downloadSummary':downloadSummaryImage();return;
+
+  /* history: edit payment */
+  case 'editPay':{const t=S.transactions.find(x=>x.id===id);if(!t)return;
+    ui.modal={type:'pay',id,mop:t.mop,account:t.account||'',received:String(t.received||0),
+      splitCash:String(t.splitCash||0),splitOnline:String(t.splitOnline||0),status:t.status,notes:t.notes||''};break;}
+  case 'saveEditPay':{const t=S.transactions.find(x=>x.id===id);if(!t)return;
+    const m=ui.modal,recv=receivedOf(m),excess=Math.max(0,recv-t.r.total);
+    const fields={mop:m.mop,account:(m.mop==='online'||m.status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status:m.status,notes:(m.notes||'').trim()};
+    if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesEdit',no:'tipNoEdit',_id:id,_fields:fields};break}
+    Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
+  case 'tipYesEdit':case 'tipNoEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
+    if(t){Object.assign(t,m._fields,{tip:a==='tipYesEdit'?m.excess:0});if(m._fields.status!=='paid'&&m._fields.status!=='verified')t.remitted=false;persist()}
+    closeModal();toast('Payment updated'+(a==='tipYesEdit'?' — excess added as rider tip':''));break;}
+  case 'hx':ui.hx[id]=!ui.hx[id];break;
+  case 'showAll':ui.showAll=!ui.showAll;break;
+  case 'delTx':ui.modal={type:'confirm',title:'Delete this transaction?',msg:'It will also leave the remit totals.',yes:'delTxYes',id};break;
+  case 'delTxYes':S.transactions=S.transactions.filter(t=>t.id!==id);persist();closeModal();toast('Transaction deleted');break;
+  case 'selTx':if(el.checked)ui.selTx[id]=true;else delete ui.selTx[id];break;
+  case 'selAllTx':{const all=S.transactions.slice().sort((x,y)=>y.ts-x.ts);const list=ui.showAll?all:all.slice(0,10);
+    const allSel=list.length>0&&list.every(t=>ui.selTx[t.id]);
+    if(allSel)list.forEach(t=>delete ui.selTx[t.id]);else list.forEach(t=>ui.selTx[t.id]=true);break;}
+  case 'delSelTx':{const n=Object.keys(ui.selTx).filter(k=>ui.selTx[k]).length;if(!n)return;
+    ui.modal={type:'confirm',title:'Delete selected transactions?',msg:'This will permanently delete '+n+' transaction(s) and leave the remit totals.',yes:'delSelTxYes'};break;}
+  case 'delSelTxYes':S.transactions=S.transactions.filter(t=>!ui.selTx[t.id]);ui.selTx={};persist();closeModal();toast('Selected transactions deleted');break;
+
+  /* payment status */
+  case 'togPayStatus':ui.pay.statusSel[k]=!ui.pay.statusSel[k];break;
+  case 'addPayNew':ui.modal={type:'addPay',date:today(),amount:'',customer:'',rider:'',riderManual:false,
+    mop:'cash',account:'',received:'0',splitCash:'0',splitOnline:'0',status:'nyp',notes:''};break;
+  case 'addPayRiderList':ui.modal.riderManual=false;ui.modal.rider='';break;
+  case 'saveAddPay':{const m=ui.modal,amount=num(m.amount);
+    if(!m.date){$('#mErr').textContent='Pick a date.';return}
+    if(!m.customer.trim()){$('#mErr').textContent='Enter the customer name.';return}
+    if(!m.rider.trim()){$('#mErr').textContent='Enter or choose the rider.';return}
+    if(!(amount>0)){$('#mErr').textContent='Enter the amount due.';return}
+    const recv=receivedOf(m),excess=Math.max(0,recv-amount);
+    const newTx={id:uid(),ts:Date.now(),date:m.date,customer:m.customer.trim(),rider:m.rider.trim(),
+      r:{pabili:0,service:0,cashType:'in',cashAmt:0,cashCharge:0,cashMode:'pct',cashVal:0,bills:0,billPct:0,billCharge:0,
+         fee:amount,disc:0,hop:0,wait:0,other:0,otherNote:'',pabiliList:[],billList:[],goods:0,fees:amount,total:amount},
+      mop:m.mop,account:(m.mop==='online'||m.status==='nyp')?'':m.account,received:recv,
+      splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status:m.status,tip:0,remitted:false,notes:(m.notes||'').trim()};
+    if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesAddPay',no:'tipNoAddPay',_newTx:newTx};break}
+    S.transactions.push(newTx);persist();closeModal();toast('Record added');break;}
+  case 'tipYesAddPay':case 'tipNoAddPay':{const m=ui.modal;
+    S.transactions.push(Object.assign(m._newTx,{tip:a==='tipYesAddPay'?m.excess:0}));
+    persist();closeModal();toast('Record added'+(a==='tipYesAddPay'?' — excess added as rider tip':''));break;}
+  case 'selPay':if(el.checked)ui.selPay[id]=true;else delete ui.selPay[id];break;
+  case 'selAllPay':{const list=payList();const allSel=list.length>0&&list.every(t=>ui.selPay[t.id]);
+    if(allSel)list.forEach(t=>delete ui.selPay[t.id]);else list.forEach(t=>ui.selPay[t.id]=true);break;}
+  case 'delSelPay':{const n=Object.keys(ui.selPay).filter(k=>ui.selPay[k]).length;if(!n)return;
+    ui.modal={type:'confirm',title:'Delete selected records?',msg:'This will permanently delete '+n+' customer record(s) and leave the remit totals.',yes:'delSelPayYes'};break;}
+  case 'delSelPayYes':S.transactions=S.transactions.filter(t=>!ui.selPay[t.id]);ui.selPay={};persist();closeModal();toast('Selected records deleted');break;
+  case 'downloadPayStatus':downloadPayStatusImage();break;
+  case 'payCsv':exportPayCsv();return;
+
+  /* remit */
+  case 'rmt':{const t=S.transactions.find(x=>x.id===id);if(t){t.remitted=el.checked;persist()}break;}
+  case 'rmtAll':remitList().forEach(t=>{if(effectiveConfirmed(t))t.remitted=true});persist();toast('Marked as remitted');break;
+  case 'addFund':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
+    if(riderSel==='all'){ui.fundF.err='Pick a rider first.';break}
+    const amt=num(ui.fundF.amt),note=ui.fundF.note.trim();
+    if(!amt){ui.fundF.err='Enter a non-zero amount.';break}
+    if(!note){ui.fundF.err='Add a note for this fund entry.';break}
+    S.ledger.push({id:uid(),ts:Date.now(),type:'fund',rider:riderSel,date:ui.fundF.date,amount:amt,note});
+    persist();ui.fundF={date:today(),amt:'',note:'',err:''};toast('Fund added');break;}
+  case 'addDed':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
+    if(riderSel==='all'){ui.dedF.err='Pick a rider first.';break}
+    const amt=num(ui.dedF.amt),note=ui.dedF.note.trim();
+    if(!(amt>0)){ui.dedF.err='Enter an amount greater than zero.';break}
+    if(!note){ui.dedF.err='Add a note for this deduction.';break}
+    S.ledger.push({id:uid(),ts:Date.now(),type:'deduction',rider:riderSel,date:ui.dedF.date,amount:amt,note});
+    persist();ui.dedF={date:today(),amt:'',note:'',err:''};toast('Deduction added');break;}
+  case 'addTip':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
+    if(riderSel==='all'){ui.tipF.err='Pick a rider first.';break}
+    const amt=num(ui.tipF.amt),note=ui.tipF.note.trim();
+    if(!(amt>0)){ui.tipF.err='Enter an amount greater than zero.';break}
+    if(!note){ui.tipF.err='Add a note for this tip.';break}
+    S.ledger.push({id:uid(),ts:Date.now(),type:'tip',rider:riderSel,date:ui.tipF.date,amount:amt,note});
+    persist();ui.tipF={date:today(),amt:'',note:'',err:''};toast('Tip added');break;}
+  case 'delLedger':ui.modal={type:'confirm',title:'Delete this entry?',msg:'This removes it from the fund/deduction/tip totals.',yes:'delLedgerYes',id};break;
+  case 'delLedgerYes':S.ledger=S.ledger.filter(e=>e.id!==id);persist();closeModal();toast('Entry deleted');break;
+  case 'saveInitBudget':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
+    const amt=num(ui.ibF!=null?ui.ibF:0);
+    const rec=S.riderDays[key]||{};
+    S.riderDays[key]={...rec,initialBudget:amt,posted:!!rec.posted};
+    ui.ibF=null;persist();toast('Initial budget saved');break;}
+  case 'postDay':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
+    const sum=daySummary(rider,date);
+    S.riderDays[key]={...(S.riderDays[key]||{}),initialBudget:sum.initialBudget,posted:true,closingFund:sum.totalRiderFund};
+    const nextKey=rdKey(rider,shiftDate(date,1));
+    if(!S.riderDays[nextKey])S.riderDays[nextKey]={initialBudget:sum.totalRiderFund,posted:false};
+    ui.sumDate=shiftDate(date,1);ui.ibF=null;
+    persist();toast('Day posted — next day started');break;}
+  case 'csv':exportCsv();return;
+  case 'historyCsv':exportHistoryCsv();return;
+
+  /* settings */
+  case 'savePins':{const o=$('#sOwner').value.trim(),ad=$('#sAdmin').value.trim();
+    if(o.replace('#','').length<4||ad.replace('#','').length<4){toast('PINs need at least 4 characters');return}
+    S.settings.ownerPin=o;S.settings.adminPin=ad;persist();toast('PINs saved');return;}
+  case 'addRider':{const n=$('#rName').value.trim(),p=$('#rPin').value.trim();
+    if(!n||p.length<4){$('#sErr').textContent='Enter a name and a PIN of at least 4 digits.';return}
+    if(S.settings.riders.some(r=>r.name.toLowerCase()===n.toLowerCase())){$('#sErr').textContent='That rider name already exists.';return}
+    S.settings.riders.push({id:uid(),name:n,pin:p});persist();toast('Rider added');break;}
+  case 'editRider':ui.modal={type:'rider',id};break;
+  case 'saveRiderPin':{const p=$('#npin').value.trim();if(p.length<4){$('#mErr').textContent='Use at least 4 digits.';return}
+    const r=S.settings.riders.find(x=>x.id===id);if(r){r.pin=p;persist()}closeModal();toast('PIN updated');break;}
+  case 'delRider':S.settings.riders=S.settings.riders.filter(r=>r.id!==id);persist();toast('Rider removed');break;
+  }
+  render();
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-a]');if(!el)return;
+  act(el.dataset.a,el,e);
+});
+document.addEventListener('input',e=>{
+  const el=e.target;
+  if(el.dataset&&el.dataset.b&&el.tagName!=='SELECT'&&!el.dataset.rr)setPath(el.dataset.b,el.value);
+});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const el=e.target;
+  if(!el.dataset||!el.dataset.enter)return;
+  e.preventDefault();
+  if(el.dataset.b)setPath(el.dataset.b,el.value);
+  el.blur();
+  act(el.dataset.enter,el,e);
+});
+document.addEventListener('change',e=>{
+  const el=e.target;
+  if(!document.body.contains(el))return;
+  if(el.id==='mrs'){const m=$('#mrm');if(m)m.style.display=el.value==='__m'?'':'none';return}
+  if(!el.dataset||!el.dataset.b)return;
+  if(el.dataset.b==='c.rider'&&el.value==='__m'){calc.riderManual=true;calc.rider='';render();return}
+  if(el.dataset.b==='m.rider'&&el.value==='__m'&&ui.modal&&ui.modal.type==='addPay'){ui.modal.riderManual=true;ui.modal.rider='';render();return}
+  setPath(el.dataset.b,el.value);
+  if(el.dataset.b==='s.timezone'){persist();toast('Time zone updated')}
+  if(el.tagName==='SELECT'||el.dataset.rr)render();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='lpin')act('login',e.target)});
+render();
+bootSync();
+</script>
+</body>
+</html>
