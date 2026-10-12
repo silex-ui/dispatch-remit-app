@@ -921,10 +921,17 @@ function vPaymentStatus(){
    <label class="ck"><input type="checkbox" class="bigchk" data-a="selAllPay" ${allSel?'checked':''}> Select all</label>
    ${selCount?`<button class="btn red" data-a="delSelPay">Delete selected (${selCount})</button>`:''}
   </div>
-  ${list.length?`<div class="dtable"><table><thead><tr>
+  ${list.length?(()=>{
+    const tDue=list.reduce((s,t)=>s+t.r.total,0),tRecv=list.reduce((s,t)=>s+(t.received||0),0),tBal=list.reduce((s,t)=>s+balanceOf(t),0);
+    return `<div class="dtable"><table><thead><tr>
    <th></th><th>Date</th><th>Customer</th><th>Rider</th><th>Amount due</th><th>Received</th><th>Balance</th><th>MOP</th><th>Account</th><th>Notes</th><th>Status</th><th></th>
-  </tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>
-  <p class="hint">${list.length} record${list.length===1?'':'s'} shown.</p>`:'<p class="empty">No customers match these filters.</p>'}
+  </tr></thead><tbody>${list.map(row).join('')}</tbody>
+  <tfoot><tr style="font-weight:700;border-top:2px solid var(--line)">
+   <td colspan="4">Total (${list.length} record${list.length===1?'':'s'})</td>
+   <td class="num">${peso(tDue)}</td><td class="num">${peso(tRecv)}</td><td class="num" style="${tBal>0?'color:var(--red)':''}">${peso(tBal)}</td>
+   <td colspan="5"></td>
+  </tr></tfoot></table></div>`;
+  })():'<p class="empty">No customers match these filters.</p>'}
   </section>`;
 }
 function dayTipEntries(rider,date){
