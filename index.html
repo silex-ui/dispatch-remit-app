@@ -762,12 +762,12 @@ function vRemit(){
   <label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>
   <div class="stats"><div class="stat"><small>Collected (paid/verified)</small><b>${peso(T.collected)}</b></div><div class="stat"><small>Rider earnings</small><b>${peso(T.earned)}</b></div><div class="stat"><small>Balance to remit</small><b>${peso(T.balance+ded)}</b></div>${T.refund>0?`<div class="stat"><small>${me.role==='rider'?'Refund owed to you (online, NYP)':'Refund owed to rider (online, NYP)'}</small><b>${peso(T.refund)}</b></div>`:''}</div>
   <p class="hint num">Remit due ${peso(T.dueAll+ded)}, already remitted ${peso(T.done)}${ded>0?`, including ${peso(ded)} in deductions`:''}. Disregarded transactions are excluded; only Paid or Verified count toward collections.</p>
-  <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button>${canEdit&&list.some(t=>effectiveConfirmed(t)&&!t.remitted)?'<button class="btn ghost" data-a="rmtAll">Mark listed as remitted</button>':''}</div>
+  <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button></div>
   ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${me.role==='rider'?simpleMop:mopLabel(t)}</span></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
   <div class="pd">${me.role==='rider'?`<span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>`:`<span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>`}${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
-  ${canEdit&&effectiveConfirmed(t)?`<label class="ck"><input type="checkbox" data-a="rmt" data-id="${t.id}" ${t.remitted?'checked':''}> Remitted</label>`:(t.remitted?'<span class="chip paid">Remitted</span>':'')}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
+  ${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet remitted</span>':'')}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
   ${vLedgerCard(riderSel)}`;
 }
 
@@ -1208,8 +1208,6 @@ function act(a,el,ev){
   case 'payCsv':exportPayCsv();return;
 
   /* remit */
-  case 'rmt':{const t=S.transactions.find(x=>x.id===id);if(t){t.remitted=el.checked;persist()}break;}
-  case 'rmtAll':remitList().forEach(t=>{if(effectiveConfirmed(t))t.remitted=true});persist();toast('Marked as remitted');break;
   case 'addFund':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.fundF.err='Pick a rider first.';break}
     const amt=num(ui.fundF.amt),note=ui.fundF.note.trim();
@@ -1241,10 +1239,11 @@ function act(a,el,ev){
   case 'postDay':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
     const sum=daySummary(rider,date);
     S.riderDays[key]={...(S.riderDays[key]||{}),initialBudget:sum.initialBudget,posted:true,closingFund:sum.totalRiderFund};
+    dayTxns(rider,date).filter(effectiveConfirmed).forEach(t=>{t.remitted=true});
     const nextKey=rdKey(rider,shiftDate(date,1));
     if(!S.riderDays[nextKey])S.riderDays[nextKey]={initialBudget:sum.totalRiderFund,posted:false};
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
-    persist();toast('Day posted — next day started');break;}
+    persist();toast('Day posted — remit marked as settled, next day started');break;}
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
 
