@@ -756,6 +756,17 @@ function ledgerTotals(riderName){
   const tip=list.filter(e=>e.type==='tip').reduce((s,e)=>s+e.amount,0);
   return{fund,ded,tip,list};
 }
+/* Tip history = manual ledger tips (Add tip) + tips auto-added from an excess
+   payment while updating a transaction's payment details — those carry the
+   customer's name so the rider can see exactly who the tip came from. */
+function tipEntriesCombined(riderName){
+  const f=ui.rem;
+  const manual=S.ledger.filter(e=>e.rider===riderName&&e.type==='tip'&&e.date>=f.from&&e.date<=f.to)
+    .map(e=>({id:e.id,ts:e.ts,date:e.date,amount:e.amount,label:e.note||'Manual tip',kind:'ledger'}));
+  const auto=S.transactions.filter(t=>t.rider===riderName&&(t.tip||0)>0&&t.status!=='disreg'&&t.date>=f.from&&t.date<=f.to)
+    .map(t=>({id:'tx_'+t.id,ts:t.ts,date:t.date,amount:t.tip,label:'From '+t.customer,kind:'tx'}));
+  return[...manual,...auto].sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+}
 function vDailySummary(riderName){
   if(riderName==='all')return '';
   const canEdit=me.role!=='rider';
@@ -784,14 +795,17 @@ function vDailySummary(riderName){
    ${stat('Total rider fund',sum.totalRiderFund,'Initial budget + Total fund + Deductions + Management share − Total online refund − Online tip','wide hl')}
   </div>
   ${canEdit?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:''}
+  <button class="btn blue" style="margin-top:8px" data-a="downloadRemitImage" data-rider="${esc(riderName)}">Download summary (.jpeg)</button>
   </section>`;
 }
 function vLedgerCard(riderName){
   const canEdit=me.role!=='rider';
   if(riderName==='all')return `<section class="card"><h2>Rider fund &amp; deductions</h2><p class="empty">Select a single rider above to add or view fund and deduction entries.</p></section>`;
-  const{fund,ded,tip,list}=ledgerTotals(riderName);
-  const fundEntries=list.filter(e=>e.type==='fund'),dedEntries=list.filter(e=>e.type==='deduction'),tipEntries=list.filter(e=>e.type==='tip');
+  const{fund,ded,list}=ledgerTotals(riderName);
+  const fundEntries=list.filter(e=>e.type==='fund'),dedEntries=list.filter(e=>e.type==='deduction');
+  const tipList=tipEntriesCombined(riderName),tip=tipList.reduce((s,e)=>s+e.amount,0);
   const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
+  const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
   <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div></div>
   <div class="blk"><h4>Add fund</h4>
@@ -814,7 +828,9 @@ function vLedgerCard(riderName){
   <label class="f">Note<input type="text" data-b="tipF.note" value="${esc(ui.tipF.note)}" placeholder="Reason for this tip"></label>
   ${ui.tipF.err?`<p class="err" role="alert">${esc(ui.tipF.err)}</p>`:''}
   <button class="btn green" data-a="addTip">Add tip</button>`:''}
-  ${tipEntries.length?`<div>${tipEntries.map(entryRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
+  <h4 style="margin-top:12px">Tip history</h4>
+  <p class="hint">Includes tips you add here and tips automatically given when a customer's payment came in higher than the amount due — those show which customer the tip came from.</p>
+  ${tipList.length?`<div>${tipList.map(tipRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
   </section>`;
 }
 function vRemit(){
@@ -891,6 +907,64 @@ function vPaymentStatus(){
   </tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>
   <p class="hint">${list.length} record${list.length===1?'':'s'} shown.</p>`:'<p class="empty">No customers match these filters.</p>'}
   </section>`;
+}
+function dayTipEntries(rider,date){
+  const manual=dayLedger(rider,date).filter(e=>e.type==='tip').map(e=>({note:e.note||'Manual tip',amount:e.amount}));
+  const auto=dayTxns(rider,date).filter(t=>(t.tip||0)>0).map(t=>({note:'From '+t.customer,amount:t.tip}));
+  return[...manual,...auto];
+}
+async function downloadRemitSummaryImage(riderName){
+  if(!riderName||riderName==='all'){toast('Select a single rider first.');return}
+  if(typeof html2canvas==='undefined'){toast('Image export is still loading — try again in a moment.');return}
+  const date=ui.sumDate,sum=daySummary(riderName,date);
+  const led=dayLedger(riderName,date);
+  const fundEntries=led.filter(e=>e.type==='fund');
+  const dedEntries=led.filter(e=>e.type==='deduction');
+  const tipEntries=dayTipEntries(riderName,date);
+  const wrap=document.createElement('div');
+  wrap.style.cssText='position:fixed;left:-9999px;top:0;background:#fff;padding:22px;width:460px;font-family:Figtree,system-ui,sans-serif;color:#141C26';
+  const stat=(label,val)=>`<div style="padding:9px 0;border-bottom:1px solid #D3DAE3"><div style="font-size:.7rem;color:#586577;text-transform:uppercase;letter-spacing:.03em">${label}</div><div style="font-size:1.05rem;font-weight:700">${peso(val)}</div></div>`;
+  const signedRow=e=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:.75rem;padding:3px 0;border-bottom:1px solid #EEF1F5"><span>${esc(e.note)}</span><b style="color:${e.amount<0?'#D0273A':'#178A50'};white-space:nowrap">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b></div>`;
+  const tipRow=e=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:.75rem;padding:3px 0;border-bottom:1px solid #EEF1F5"><span>${esc(e.note)}</span><b style="color:#178A50;white-space:nowrap">+${peso(e.amount)}</b></div>`;
+  const miniTable=(title,entries,empty,rowFn)=>`<div style="margin-top:12px"><div style="font-size:.75rem;font-weight:700;color:#586577;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">${title}</div>
+   ${entries.length?entries.map(rowFn).join(''):`<div style="font-size:.75rem;color:#586577">${empty}</div>`}</div>`;
+  wrap.innerHTML=`
+   <div style="font-size:.7rem;font-weight:700;color:#D9600A;letter-spacing:.06em">DAILY RIDER SUMMARY</div>
+   <h2 style="font-family:'Bricolage Grotesque',sans-serif;margin:2px 0 2px;font-size:1.4rem">${esc(riderName)}</h2>
+   <div style="font-size:.78rem;color:#586577;margin-bottom:8px">${fmtDate(date)}${sum.posted?' &middot; Posted':''}</div>
+   ${stat('Initial budget',sum.initialBudget)}
+   ${stat('Add fund',sum.totalFund)}
+   ${stat('Rider earnings',sum.riderEarnings)}
+   ${stat('Online tip',sum.onlineTip)}
+   ${stat('Management share',sum.managementShare)}
+   ${stat('Total online refund',sum.onlineRefund)}
+   ${stat('Deductions added',sum.deductions)}
+   <div style="margin-top:6px;padding:12px;background:#D9600A;border-radius:10px;color:#fff">
+    <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.03em;opacity:.9">Total rider fund</div>
+    <div style="font-size:1.3rem;font-weight:800">${peso(sum.totalRiderFund)}</div>
+   </div>
+   ${miniTable('Fund history',fundEntries,'No fund entries for this date.',signedRow)}
+   ${miniTable('Deduction history',dedEntries,'No deductions for this date.',signedRow)}
+   ${miniTable('Tip history',tipEntries,'No tip entries for this date.',tipRow)}
+   <div style="margin-top:12px;font-size:.65rem;color:#9AA7B7">Generated ${new Date().toLocaleString('en-PH',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})}</div>`;
+  document.body.appendChild(wrap);
+  let canvas;
+  try{canvas=await html2canvas(wrap,{backgroundColor:'#ffffff',scale:2})}
+  catch(e){toast('Could not create the image.');document.body.removeChild(wrap);return}
+  document.body.removeChild(wrap);
+  canvas.toBlob(async blob=>{
+    if(!blob){toast('Could not create the image.');return}
+    const name='rider-summary_'+riderName.replace(/[^a-z0-9]+/gi,'-')+'_'+date+'.jpg';
+    let dl=null;
+    try{dl=window.claude?await window.claude.use('downloads'):null}catch(e){dl=null}
+    if(!dl){fallbackSave(blob,name);return}
+    try{await dl.save({filename:name,data:blob});toast('Rider summary image ready')}
+    catch(e){
+      if(e&&e.code==='declined')return;
+      if(e&&e.code==='rate_limited'){toast('Wait a moment and try again');return}
+      fallbackSave(blob,name);
+    }
+  },'image/jpeg',0.92);
 }
 async function downloadPayStatusImage(){
   const list=payList();
@@ -1271,6 +1345,7 @@ function act(a,el,ev){
     ui.modal={type:'confirm',title:'Delete selected records?',msg:'This will permanently delete '+n+' customer record(s) and leave the remit totals.',yes:'delSelPayYes'};break;}
   case 'delSelPayYes':S.transactions=S.transactions.filter(t=>!ui.selPay[t.id]);ui.selPay={};persist();closeModal();toast('Selected records deleted');break;
   case 'downloadPayStatus':downloadPayStatusImage();break;
+  case 'downloadRemitImage':downloadRemitSummaryImage(el.dataset.rider);return;
   case 'payCsv':exportPayCsv();return;
 
   /* remit */
