@@ -295,6 +295,63 @@ function formPost(url,fields){
   });
 }
 
+/* -- three-way merge: keep local edits made since the last confirmed sync,
+   instead of letting a refresh from the shared sheet silently wipe them out. -- */
+let lastSynced=null;
+const clone=x=>JSON.parse(JSON.stringify(x));
+const deepEq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+function mergeArrayById(base,local,remote){
+  const bM={},lM={},rM={};
+  (base||[]).forEach(x=>bM[x.id]=x);(local||[]).forEach(x=>lM[x.id]=x);(remote||[]).forEach(x=>rM[x.id]=x);
+  const ids=new Set([...Object.keys(lM),...Object.keys(rM)]);
+  const out=[];
+  ids.forEach(id=>{
+    const b=bM[id],l=lM[id],r=rM[id];
+    if(l&&r){
+      const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);
+      out.push(lCh?l:(rCh?r:l)); // local edit wins on a genuine conflict (it's the change in progress on this device)
+    }else if(l&&!r){
+      if(b&&deepEq(l,b))return; // unchanged locally, deleted remotely -> respect the deletion
+      out.push(l); // new locally, or locally edited after being deleted elsewhere -> keep it
+    }else if(r&&!l){
+      if(b&&deepEq(r,b))return; // unchanged remotely, deleted locally -> respect the deletion
+      out.push(r); // new remotely, or edited elsewhere after we deleted our copy -> keep it
+    }
+  });
+  return out;
+}
+function mergeMap(base,local,remote){
+  base=base||{};local=local||{};remote=remote||{};
+  const keys=new Set([...Object.keys(local),...Object.keys(remote)]);
+  const out={};
+  keys.forEach(k=>{
+    const b=base[k],l=local[k],r=remote[k];
+    if(l&&r){const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);out[k]=lCh?l:(rCh?r:l)}
+    else out[k]=l||r;
+  });
+  return out;
+}
+function mergeSettings(base,local,remote){
+  base=base||{};local=local||{};remote=remote||{};
+  const out={...remote,...local};
+  ['ownerPin','adminPin','timezone'].forEach(k=>{
+    const lCh=!base||local[k]!==base[k],rCh=!base||remote[k]!==base[k];
+    out[k]=lCh?local[k]:(rCh?remote[k]:local[k]);
+  });
+  out.riders=mergeArrayById(base.riders,local.riders,remote.riders);
+  return out;
+}
+function mergeState(base,local,remote){
+  base=base||{};
+  return{
+    settings:mergeSettings(base.settings,local.settings,remote.settings),
+    bookings:mergeArrayById(base.bookings,local.bookings,remote.bookings),
+    transactions:mergeArrayById(base.transactions,local.transactions,remote.transactions),
+    ledger:mergeArrayById(base.ledger,local.ledger,remote.ledger),
+    riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays)
+  };
+}
+
 /* -- push local changes to the shared backend, debounced -- */
 let pushTimer=null,pushing=false,pushAgain=false;
 function schedulePush(){
@@ -307,11 +364,13 @@ async function doPush(){
   pushing=true;sync.status='saving';render();
   try{
     const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
-    if(j.ok){sVer=j.version;sync.status='online';sync.msg=''}
+    if(j.ok){sVer=j.version;lastSynced=clone(S);sync.status='online';sync.msg=''}
     else if(j.conflict){
-      S=normalize(j.data);sVer=j.version;saveLocal();
-      sync.status='online';sync.msg='Updated elsewhere just now';
-      toast('Data was just updated on another device — check your last change');
+      const remote=normalize(j.data);
+      S=normalize(mergeState(lastSynced,S,remote));
+      sVer=j.version;lastSynced=clone(remote);saveLocal();
+      sync.status='online';sync.msg='';
+      pushAgain=true; // re-send so our preserved edits land under the new version
     }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background'}
   }catch(e){sync.status='offline';sync.msg='No connection — saved on this device only ['+(e&&e.message)+']'}
   pushing=false;
@@ -323,7 +382,7 @@ async function doPush(){
 function safeToRefresh(){
   if(ui.modal)return false;
   const el=document.activeElement;
-  if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA')){
+  if(el&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA'||el.tagName==='SELECT')){
     const t=(el.type||'').toLowerCase();
     if(t!=='checkbox'&&t!=='radio')return false;
   }
@@ -335,7 +394,7 @@ async function bootSync(){
   sync.status='connecting';render();
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
-    if(j.ok){S=normalize(j.data);sVer=j.version;saveLocal();sync.status='online';sync.msg=''}
+    if(j.ok){S=normalize(j.data);sVer=j.version;lastSynced=clone(S);saveLocal();sync.status='online';sync.msg=''}
     else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
   render();
@@ -349,7 +408,14 @@ async function pollOnce(){
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
     if(j.ok){
       sync.status='online';sync.msg='';
-      if(j.version!==sVer){S=normalize(j.data);sVer=j.version;saveLocal();render()}
+      if(j.version!==sVer){
+        const remote=normalize(j.data);
+        const merged=normalize(mergeState(lastSynced,S,remote));
+        const changed=!deepEq(merged,S);
+        S=merged;sVer=j.version;lastSynced=clone(remote);saveLocal();
+        if(changed)render();
+        if(!deepEq(S,remote))schedulePush(); // we're holding local edits the sheet doesn't have yet — send them
+      }
     }
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()}
 }
