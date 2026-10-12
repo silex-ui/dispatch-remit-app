@@ -451,7 +451,11 @@ function compute(c){
   return r;
 }
 const STATUS_LABEL={nyp:'Not yet paid',paid:'Paid',verified:'Verified',disreg:'Disregarded'};
-const MOP_LABEL={online:'Online',cash:'Cash',split:'Split',gcash:'GCash',bpi:'BPI',bdo:'BDO'};
+const MOP_LABEL={online:'Online',cash:'Cash',split:'Split',gcash3086:'GCash *3086',gcash4711:'GCash *4711',bpi4571:'BPI *4571',bdo6353:'BDO *6353',
+  /* legacy values kept only so older records already saved under them still display correctly */
+  gcash:'GCash',bpi:'BPI',bdo:'BDO'};
+const ACCOUNT_LABEL={gcash3086:'GCash *3086',gcash4711:'GCash *4711',bpi4571:'BPI *4571',bdo6353:'BDO *6353',keem:'Keem',anthony:'Anthony'};
+const acctLabel=a=>ACCOUNT_LABEL[a]||cap(a);
 const confirmed=t=>t.status==='paid'||t.status==='verified';
 /* Online money (full "online" MOP, or the online half of a "split") already lands in the business's
    own account, so the business can pay the rider their due right away instead of waiting for the
@@ -486,9 +490,9 @@ const balanceOf=t=>Math.max(0,t.r.total-(t.received||0));
 const excessOf=t=>Math.max(0,(t.received||0)-t.r.total);
 const mopLabel=t=>{
   if(t.mop==='cash')return 'Cash';
-  if(t.mop==='split')return `Split &ndash; Cash ${peso(t.splitCash||0)} / Online ${peso(t.splitOnline||0)}${t.account?' ('+esc(cap(t.account))+')':''}`;
+  if(t.mop==='split')return `Split &ndash; Cash ${peso(t.splitCash||0)} / Online ${peso(t.splitOnline||0)}${t.account?' ('+esc(acctLabel(t.account))+')':''}`;
   const label=MOP_LABEL[t.mop]||esc(cap(t.mop));
-  return label+(t.account?' &ndash; '+esc(cap(t.account)):'');
+  return label+(t.account?' &ndash; '+esc(acctLabel(t.account)):'');
 };
 
 /* ---------- daily rider summary ---------- */
@@ -676,21 +680,25 @@ function payFields(prefix,c,total){
   return `<div class="blk"><h4>Payment details</h4>
   <div class="grid2"><label class="f">Mode of payment<select data-b="${prefix}.mop">
    <option value="online" ${c.mop==='online'?'selected':''}>Online</option>
-   <option value="gcash" ${c.mop==='gcash'?'selected':''}>GCash</option>
-   <option value="bpi" ${c.mop==='bpi'?'selected':''}>BPI</option>
-   <option value="bdo" ${c.mop==='bdo'?'selected':''}>BDO</option>
+   <option value="gcash3086" ${c.mop==='gcash3086'?'selected':''}>GCash *3086</option>
+   <option value="gcash4711" ${c.mop==='gcash4711'?'selected':''}>GCash *4711</option>
+   <option value="bpi4571" ${c.mop==='bpi4571'?'selected':''}>BPI *4571</option>
+   <option value="bdo6353" ${c.mop==='bdo6353'?'selected':''}>BDO *6353</option>
    <option value="cash" ${c.mop==='cash'?'selected':''}>Cash</option>
    <option value="split" ${c.mop==='split'?'selected':''}>Split — cash + online</option></select></label>
-  ${(c.mop!=='cash'&&c.mop!=='online')?`<label class="f">Received to account<select data-b="${prefix}.account"><option value="" ${!c.account?'selected':''}>— empty —</option><option value="keem" ${c.account==='keem'?'selected':''}>Keem</option><option value="anthony" ${c.account==='anthony'?'selected':''}>Anthony</option></select></label>`:'<div></div>'}</div>
+  ${c.mop==='split'?`<label class="f">Received to account<select data-b="${prefix}.account"><option value="" ${!c.account?'selected':''}>Select account</option><option value="gcash3086" ${c.account==='gcash3086'?'selected':''}>GCash *3086</option><option value="gcash4711" ${c.account==='gcash4711'?'selected':''}>GCash *4711</option><option value="bpi4571" ${c.account==='bpi4571'?'selected':''}>BPI *4571</option><option value="bdo6353" ${c.account==='bdo6353'?'selected':''}>BDO *6353</option></select></label>`:'<div></div>'}</div>
   ${c.mop==='split'?`<div class="grid2"><label class="f">Cash amount received<input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.splitCash" value="${esc(c.splitCash)}"></label>
   <label class="f">Online amount received<input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.splitOnline" value="${esc(c.splitOnline)}"></label></div>
   <p class="hint num">Total received: ${peso(recv)}</p>`
   :`<label class="f">Amount received<div style="display:flex;gap:6px;align-items:center"><input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.received" value="${esc(c.received)}" style="flex:1"><button type="button" class="btn ghost" style="padding:0 10px;min-height:38px;font-size:.8rem;flex:none" data-a="exactAmt" data-b="${prefix}.received" data-v="${total}">EXACT</button></div></label>`}
-  <label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>
+  ${c.mop==='cash'
+    ?`<label class="f">Status<select data-b="${prefix}.status" disabled><option value="verified" selected>VERIFIED</option></select><span class="hint">Locked — Cash payments are always Verified.</span></label>`
+    :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>`}
   ${bal>0?`<p class="hint num">Balance ${peso(bal)} still due from the customer.</p>`:''}
   ${excess>0?`<p class="hint num">Amount received is ${peso(excess)} more than the total — you'll be asked whether to give it to the rider as a tip.</p>`:''}
   ${c.mop!=='cash'?`<p class="hint">This payment is reflected in the rider's earnings/remit right away, even while status is NYP.</p>`:''}
-  ${c.mop==='online'?`<p class="hint">Received-to-account always stays empty for plain Online payments.</p>`:c.status==='nyp'?`<p class="hint">Received-to-account stays empty while status is NYP — it's set once the payment is actually confirmed.</p>`:''}
+  ${c.mop==='split'&&c.status==='nyp'?`<p class="hint">Received-to-account stays empty while status is NYP — it's set once the payment is actually confirmed.</p>`:''}
+  ${c.mop==='split'&&c.status!=='nyp'&&!c.account?`<p class="err">Choose which account received the online portion before saving.</p>`:''}
   </div>`;
 }
 
@@ -886,7 +894,7 @@ function vPaymentStatus(){
     <td class="num">${peso(t.received||0)}</td>
     <td class="num" style="${bal>0?'color:var(--red);font-weight:700':''}">${peso(bal)}</td>
     <td>${t.mop==='split'?'Split':(MOP_LABEL[t.mop]||cap(t.mop))}</td>
-    <td>${t.mop!=='cash'&&t.account?cap(t.account):'&mdash;'}</td>
+    <td>${t.mop!=='cash'&&t.account?acctLabel(t.account):'&mdash;'}</td>
     <td class="notes-cell">${t.notes?esc(t.notes):'<span class="empty-inline">&mdash;</span>'}</td>
     <td><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span></td>
     <td><button class="link" data-a="editPay" data-id="${t.id}">Update</button></td>
@@ -1099,6 +1107,7 @@ function vModal(){
     body=`<h3>Update payment</h3><p class="hint">${esc(t?t.customer:'')} &middot; Total ${peso(t?t.r.total:0)}</p>
     ${payFields('m',m,t?t.r.total:0)}
     <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
+    <p class="err" id="mErr" role="alert"></p>
     <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveEditPay" data-id="${m.id}">Save payment</button></div>`;
   }else if(m.type==='addPay'){
     const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
@@ -1159,7 +1168,7 @@ function buildHistoryCsv(){
   const list=S.transactions.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
   const H=['Date','Name','Rider','DF','OTHER CHARGES','MOP','Amount','Received Amount','Account Paid','Status'];
   const rows=list.map(t=>{const r=t.r,other=(r.service||0)+(r.hop||0)+(r.wait||0)+(r.cashCharge||0)+(r.billCharge||0);
-    return[fmtDateCsv(t.date),t.customer,t.rider,m2(r.fee),other?m2(other):'',(MOP_LABEL[t.mop]||t.mop).toUpperCase(),m2(r.total),t.received?m2(t.received):'',t.account?t.account.toUpperCase():'',t.status.toUpperCase()].map(q).join(',')});
+    return[fmtDateCsv(t.date),t.customer,t.rider,m2(r.fee),other?m2(other):'',(MOP_LABEL[t.mop]||t.mop).toUpperCase(),m2(r.total),t.received?m2(t.received):'',t.account?acctLabel(t.account).toUpperCase():'',t.status.toUpperCase()].map(q).join(',')});
   return [H.map(q).join(',')].concat(rows).join('\r\n');
 }
 async function exportHistoryCsv(){
@@ -1175,7 +1184,7 @@ function buildPayCsv(){
   const list=payList();
   const H=['Date','Customer','Rider','Amount due','Payment received','Balance','Mode of payment','Account received','Notes','Status'];
   const rows=list.map(t=>{const bal=balanceOf(t);
-    return[fmtDateCsv(t.date),t.customer,t.rider,m2(t.r.total),m2(t.received||0),m2(bal),t.mop==='split'?'Split':(MOP_LABEL[t.mop]||t.mop),t.mop!=='cash'&&t.account?cap(t.account):'',t.notes||'',STATUS_LABEL[t.status]].map(q).join(',')});
+    return[fmtDateCsv(t.date),t.customer,t.rider,m2(t.r.total),m2(t.received||0),m2(bal),t.mop==='split'?'Split':(MOP_LABEL[t.mop]||t.mop),t.mop!=='cash'&&t.account?acctLabel(t.account):'',t.notes||'',STATUS_LABEL[t.status]].map(q).join(',')});
   return [H.map(q).join(',')].concat(rows).join('\r\n');
 }
 async function exportPayCsv(){
@@ -1309,7 +1318,9 @@ function act(a,el,ev){
       splitCash:String(t.splitCash||0),splitOnline:String(t.splitOnline||0),status:t.status,notes:t.notes||''};break;}
   case 'saveEditPay':{const t=S.transactions.find(x=>x.id===id);if(!t)return;
     const m=ui.modal,recv=receivedOf(m),excess=Math.max(0,recv-t.r.total);
-    const fields={mop:m.mop,account:(m.mop==='online'||m.status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status:m.status,notes:(m.notes||'').trim()};
+    if(m.mop==='split'&&m.status!=='nyp'&&!m.account){$('#mErr').textContent='Choose which account received the online portion before saving.';return}
+    const status=m.mop==='cash'?'verified':m.status;
+    const fields={mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,notes:(m.notes||'').trim()};
     if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesEdit',no:'tipNoEdit',_id:id,_fields:fields};break}
     Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
   case 'tipYesEdit':case 'tipNoEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
@@ -1330,19 +1341,20 @@ function act(a,el,ev){
   /* payment status */
   case 'togPayStatus':ui.pay.statusSel[k]=!ui.pay.statusSel[k];break;
   case 'addPayNew':ui.modal={type:'addPay',date:today(),amount:'',customer:'',rider:'',riderManual:false,
-    mop:'cash',account:'',received:'0',splitCash:'0',splitOnline:'0',status:'nyp',notes:''};break;
+    mop:'cash',account:'',received:'0',splitCash:'0',splitOnline:'0',status:'verified',notes:''};break;
   case 'addPayRiderList':ui.modal.riderManual=false;ui.modal.rider='';break;
   case 'saveAddPay':{const m=ui.modal,amount=num(m.amount);
     if(!m.date){$('#mErr').textContent='Pick a date.';return}
     if(!m.customer.trim()){$('#mErr').textContent='Enter the customer name.';return}
     if(!m.rider.trim()){$('#mErr').textContent='Enter or choose the rider.';return}
     if(!(amount>0)){$('#mErr').textContent='Enter the amount due.';return}
-    const recv=receivedOf(m),excess=Math.max(0,recv-amount);
+    if(m.mop==='split'&&m.status!=='nyp'&&!m.account){$('#mErr').textContent='Choose which account received the online portion before saving.';return}
+    const recv=receivedOf(m),excess=Math.max(0,recv-amount),status=m.mop==='cash'?'verified':m.status;
     const newTx={id:uid(),ts:Date.now(),date:m.date,customer:m.customer.trim(),rider:m.rider.trim(),
       r:{pabili:0,service:0,cashType:'in',cashAmt:0,cashCharge:0,cashMode:'pct',cashVal:0,bills:0,billPct:0,billCharge:0,
          fee:amount,disc:0,hop:0,wait:0,other:0,otherNote:'',pabiliList:[],billList:[],goods:0,fees:amount,total:amount},
-      mop:m.mop,account:(m.mop==='online'||m.status==='nyp')?'':m.account,received:recv,
-      splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status:m.status,tip:0,remitted:false,notes:(m.notes||'').trim()};
+      mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,
+      splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,tip:0,remitted:false,notes:(m.notes||'').trim()};
     if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesAddPay',no:'tipNoAddPay',_newTx:newTx};break}
     S.transactions.push(newTx);persist();closeModal();toast('Record added');break;}
   case 'tipYesAddPay':case 'tipNoAddPay':{const m=ui.modal;
@@ -1448,6 +1460,7 @@ document.addEventListener('change',e=>{
   if(el.dataset.b==='c.rider'&&el.value==='__m'){calc.riderManual=true;calc.rider='';render();return}
   if(el.dataset.b==='m.rider'&&el.value==='__m'&&ui.modal&&ui.modal.type==='addPay'){ui.modal.riderManual=true;ui.modal.rider='';render();return}
   setPath(el.dataset.b,el.value);
+  if(/\.mop$/.test(el.dataset.b)&&el.value==='cash')setPath(el.dataset.b.slice(0,-4)+'.status','verified');
   if(el.dataset.b==='s.timezone'){persist();toast('Time zone updated')}
   if(el.tagName==='SELECT'||el.dataset.rr)render();
 });
