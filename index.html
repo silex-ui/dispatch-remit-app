@@ -785,6 +785,11 @@ function vDailySummary(riderName){
   const ca=rObj?num(rObj.cashAdvance||0):0;
   const stat=(label,val,sub,cls)=>`<div class="stat ${cls||''}"><small>${label}</small><b>${peso(val)}</b>${sub?`<span class="dsub">${sub}</span>`:''}</div>`;
   const ibVal=ui.ibF!=null?ui.ibF:String(sum.initialBudget);
+  const{list}=ledgerTotals(riderName);
+  const fundEntries=list.filter(e=>e.type==='fund');
+  const tipList=tipEntriesCombined(riderName);
+  const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
+  const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card">
   <h2>Daily rider summary</h2>
   <div class="dsHead"><strong>${esc(riderName)}</strong><span class="chip ${sum.posted?'disreg':'verified'}">${sum.posted?'POSTED · locked':'OPEN · editing allowed'}</span></div>
@@ -792,6 +797,22 @@ function vDailySummary(riderName){
    <label class="f">Summary date<input type="date" data-b="ui.sumDate" data-rr="1" value="${d}"></label>
    <div class="f"><span>Rider</span><input type="text" value="${esc(riderName)}" disabled></div>
   </div>
+  <div class="blk"><h4>Add fund</h4>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
+  <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
+  <label class="f">Note<input type="text" data-b="fundF.note" value="${esc(ui.fundF.note)}" placeholder="Reason for this fund"></label>
+  ${ui.fundF.err?`<p class="err" role="alert">${esc(ui.fundF.err)}</p>`:''}
+  <button class="btn" data-a="addFund">Add fund</button>`:''}
+  ${fundEntries.length?`<div>${fundEntries.map(entryRow).join('')}</div>`:'<p class="empty">No fund entries in this date range.</p>'}</div>
+  <div class="blk"><h4>Tip</h4><p class="hint">Add a tip manually, outside of a specific transaction's overpayment. Counted in Rider Earnings and Total Online Tip.</p>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="tipF.date" value="${esc(ui.tipF.date)}"></label>
+  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="tipF.amt" value="${esc(ui.tipF.amt)}"></label></div>
+  <label class="f">Note<input type="text" data-b="tipF.note" value="${esc(ui.tipF.note)}" placeholder="Reason for this tip"></label>
+  ${ui.tipF.err?`<p class="err" role="alert">${esc(ui.tipF.err)}</p>`:''}
+  <button class="btn green" data-a="addTip">Add tip</button>`:''}
+  <h4 style="margin-top:12px">Tip history</h4>
+  <p class="hint">Includes tips you add here and tips automatically given when a customer's payment came in higher than the amount due — those show which customer the tip came from.</p>
+  ${tipList.length?`<div>${tipList.map(tipRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
   <div class="blk"><h4>Initial budget</h4>
   ${canEdit&&!sum.posted?`<div class="grid2"><input type="number" inputmode="decimal" step="any" data-b="ui.ibF" value="${esc(ibVal)}"><button class="btn" data-a="saveInitBudget" data-rider="${esc(riderName)}">Save</button></div>`
     :`<p class="hint num">${peso(sum.initialBudget)}${sum.posted?' (locked — day has been posted)':''}</p>`}
@@ -814,32 +835,14 @@ function vLedgerCard(riderName){
   const canEdit=me.role!=='rider';
   if(riderName==='all')return `<section class="card"><h2>Rider fund &amp; deductions</h2><p class="empty">Select a single rider above to add or view fund and deduction entries.</p></section>`;
   const{fund,ded,list}=ledgerTotals(riderName);
-  const fundEntries=list.filter(e=>e.type==='fund'),dedEntries=list.filter(e=>e.type==='deduction');
-  const tipList=tipEntriesCombined(riderName),tip=tipList.reduce((s,e)=>s+e.amount,0);
+  const dedEntries=list.filter(e=>e.type==='deduction');
+  const tip=tipEntriesCombined(riderName).reduce((s,e)=>s+e.amount,0);
   const rObj=S.settings.riders.find(r=>r.name===riderName);
   const ca=rObj?num(rObj.cashAdvance||0):0;
   const caVal=ui.caF!=null?ui.caF:String(ca);
-  const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   const dedRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; Deduction</div><b class="num" style="color:var(--red)">&minus;${peso(e.amount)}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
-  const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
   <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div>${ca>0?`<div class="stat"><small>Cash advance balance</small><b>${peso(ca)}</b></div>`:''}</div>
-  <div class="blk"><h4>Add fund</h4>
-  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
-  <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
-  <label class="f">Note<input type="text" data-b="fundF.note" value="${esc(ui.fundF.note)}" placeholder="Reason for this fund"></label>
-  ${ui.fundF.err?`<p class="err" role="alert">${esc(ui.fundF.err)}</p>`:''}
-  <button class="btn" data-a="addFund">Add fund</button>`:''}
-  ${fundEntries.length?`<div>${fundEntries.map(entryRow).join('')}</div>`:'<p class="empty">No fund entries in this date range.</p>'}</div>
-  <div class="blk"><h4>Tip</h4><p class="hint">Add a tip manually, outside of a specific transaction's overpayment. Counted in Rider Earnings and Total Online Tip.</p>
-  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="tipF.date" value="${esc(ui.tipF.date)}"></label>
-  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="tipF.amt" value="${esc(ui.tipF.amt)}"></label></div>
-  <label class="f">Note<input type="text" data-b="tipF.note" value="${esc(ui.tipF.note)}" placeholder="Reason for this tip"></label>
-  ${ui.tipF.err?`<p class="err" role="alert">${esc(ui.tipF.err)}</p>`:''}
-  <button class="btn green" data-a="addTip">Add tip</button>`:''}
-  <h4 style="margin-top:12px">Tip history</h4>
-  <p class="hint">Includes tips you add here and tips automatically given when a customer's payment came in higher than the amount due — those show which customer the tip came from.</p>
-  ${tipList.length?`<div>${tipList.map(tipRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
   <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit, and automatically subtracted from the cash advance balance below.</p>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="dedF.date" value="${esc(ui.dedF.date)}"></label>
   <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="dedF.amt" value="${esc(ui.dedF.amt)}"></label></div>
