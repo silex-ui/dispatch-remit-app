@@ -824,10 +824,6 @@ function vLedgerCard(riderName){
   const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
   <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div>${ca>0?`<div class="stat"><small>Cash advance balance</small><b>${peso(ca)}</b></div>`:''}</div>
-  <div class="blk"><h4>Cash advance</h4><p class="hint">What the rider still owes from a cash advance. Each deduction you add below is automatically subtracted from this balance. It doesn't change the rider fund formula &mdash; it's tracked here only so the remaining balance stays visible.</p>
-  ${rObj&&!ca?'<p class="hint">No outstanding cash advance.</p>':(rObj?'':'<p class="empty">Rider not found in Settings.</p>')}
-  ${canEdit&&rObj?`<div class="grid2"><input type="number" inputmode="decimal" min="0" step="any" data-b="ui.caF" value="${esc(caVal)}"><button class="btn" data-a="saveCashAdvance" data-rider="${esc(riderName)}">Save</button></div>`:''}
-  </div>
   <div class="blk"><h4>Add fund</h4>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
   <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
@@ -835,12 +831,6 @@ function vLedgerCard(riderName){
   ${ui.fundF.err?`<p class="err" role="alert">${esc(ui.fundF.err)}</p>`:''}
   <button class="btn" data-a="addFund">Add fund</button>`:''}
   ${fundEntries.length?`<div>${fundEntries.map(entryRow).join('')}</div>`:'<p class="empty">No fund entries in this date range.</p>'}</div>
-  <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit, and automatically subtracted from the cash advance balance above.</p>
-  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="dedF.date" value="${esc(ui.dedF.date)}"></label>
-  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="dedF.amt" value="${esc(ui.dedF.amt)}"></label></div>
-  ${ui.dedF.err?`<p class="err" role="alert">${esc(ui.dedF.err)}</p>`:''}
-  <button class="btn orange" data-a="addDed">Add deduction</button>`:''}
-  ${dedEntries.length?`<div>${dedEntries.map(dedRow).join('')}</div>`:'<p class="empty">No deductions in this date range.</p>'}</div>
   <div class="blk"><h4>Tip</h4><p class="hint">Add a tip manually, outside of a specific transaction's overpayment. Counted in Rider Earnings and Total Online Tip.</p>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="tipF.date" value="${esc(ui.tipF.date)}"></label>
   <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="tipF.amt" value="${esc(ui.tipF.amt)}"></label></div>
@@ -850,6 +840,16 @@ function vLedgerCard(riderName){
   <h4 style="margin-top:12px">Tip history</h4>
   <p class="hint">Includes tips you add here and tips automatically given when a customer's payment came in higher than the amount due — those show which customer the tip came from.</p>
   ${tipList.length?`<div>${tipList.map(tipRow).join('')}</div>`:'<p class="empty">No tip entries in this date range.</p>'}</div>
+  <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit, and automatically subtracted from the cash advance balance below.</p>
+  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="dedF.date" value="${esc(ui.dedF.date)}"></label>
+  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="dedF.amt" value="${esc(ui.dedF.amt)}"></label></div>
+  ${ui.dedF.err?`<p class="err" role="alert">${esc(ui.dedF.err)}</p>`:''}
+  <button class="btn orange" data-a="addDed">Add deduction</button>`:''}
+  ${dedEntries.length?`<div>${dedEntries.map(dedRow).join('')}</div>`:'<p class="empty">No deductions in this date range.</p>'}</div>
+  <div class="blk"><h4>Cash advance</h4><p class="hint">What the rider still owes from a cash advance. Each deduction you add above is automatically subtracted from this balance. It doesn't change the rider fund formula &mdash; it's tracked here only so the remaining balance stays visible.</p>
+  ${rObj&&!ca?'<p class="hint">No outstanding cash advance.</p>':(rObj?'':'<p class="empty">Rider not found in Settings.</p>')}
+  ${canEdit&&rObj?`<div class="grid2"><input type="number" inputmode="decimal" min="0" step="any" data-b="ui.caF" value="${esc(caVal)}"><button class="btn" data-a="saveCashAdvance" data-rider="${esc(riderName)}">Save</button></div>`:''}
+  </div>
   </section>`;
 }
 function vRemit(){
@@ -860,10 +860,11 @@ function vRemit(){
   <div class="grid2">${me.role==='rider'?'':`<label class="f">Rider<select data-b="r.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`}
   <label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>
   <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button></div>
+  <h3 style="margin-top:14px">Transaction history</h3>
   ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
-  <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${me.role==='rider'?simpleMop:mopLabel(t)}</span></div></div>
+  <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${simpleMop}</span></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
-  <div class="pd">${me.role==='rider'?`<span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>`:`<span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>`}${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
+  <div class="pd"><span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
   ${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet remitted</span>':'')}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
   ${vLedgerCard(riderSel)}`;
 }
