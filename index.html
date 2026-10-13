@@ -424,6 +424,7 @@ let me=null,view='login';
 const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,showAll:false,hx:{},err:'',loginRole:'owner',loginRider:'',selTx:{},
   sumDate:today(),ibF:null,caF:null,
   rem:{rider:'all',from:today(),to:today()},
+  report:{from:today(),to:today()},
   pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''}};
 const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
@@ -549,6 +550,7 @@ function vShell(){
   else if(view==='bookings')body=me.role==='rider'?vRiderBookings():vBookings();
   else if(view==='remit')body=vRemit();
   else if(view==='paystatus')body=vPaymentStatus();
+  else if(view==='report')body=me.role==='owner'?vReport():vDash();
   else if(view==='settings')body=vSettings();
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
   <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${body}`;
@@ -559,6 +561,7 @@ function vDash(){
   const items=[['bookings',me.role==='rider'?'My bookings':'Bookings','Dispatch, calculate and record deliveries']];
   items.push(['remit',me.role==='rider'?'My remit':'Rider remit','Collections, rider share and CSV export']);
   if(me.role==='owner'||me.role==='admin')items.push(['paystatus','Payment status','All customers — view, update and follow up on payments']);
+  if(me.role==='owner')items.push(['report','Earnings report','Management & rider earnings and bookings by date']);
   if(me.role==='owner')items.push(['settings','Settings','PINs, riders and rider share']);
   return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>`;
 }
@@ -858,11 +861,13 @@ function vRemit(){
   const f=ui.rem,list=remitList(),canEdit=me.role!=='rider';
   const riderSel=me.role==='rider'?me.rider:f.rider;
   const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
-  return `${vDailySummary(riderSel)}<section class="card"><h2>${me.role==='rider'?'My remit':'Rider remit'}</h2>
+  return `<section class="card"><h2>${me.role==='rider'?'My remit':'Rider remit'}</h2>
   <div class="grid2">${me.role==='rider'?'':`<label class="f">Rider<select data-b="r.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`}
   <label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>
   <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button></div>
-  <h3 style="margin-top:14px">Transaction history</h3>
+  </section>
+  ${vDailySummary(riderSel)}<section class="card">
+  <h3 style="margin-top:0">Transaction history</h3>
   ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${simpleMop}</span></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
@@ -1063,6 +1068,42 @@ const TIMEZONES=[
   ['Pacific/Auckland','New Zealand (Auckland)'],
   ['UTC','UTC']
 ];
+/* earnings report */
+function vReport(){
+  const f=ui.report;
+  const inRange=S.transactions.filter(t=>t.date>=f.from&&t.date<=f.to&&t.status!=='disreg');
+  const counted=inRange.filter(effectiveConfirmed);
+  const mgmtTotal=counted.reduce((s,t)=>s+mgmtEarn(t),0);
+  const riderTotal=counted.reduce((s,t)=>s+earn(t),0);
+  const grossTotal=counted.reduce((s,t)=>s+t.r.total,0);
+  const byRider={};
+  inRange.forEach(t=>{
+    const k=t.rider;
+    if(!byRider[k])byRider[k]={bookings:0,rider:0,mgmt:0};
+    byRider[k].bookings++;
+    if(effectiveConfirmed(t)){byRider[k].rider+=earn(t);byRider[k].mgmt+=mgmtEarn(t)}
+  });
+  const riders=Object.keys(byRider).sort((a,b)=>byRider[b].mgmt-byRider[a].mgmt);
+  const stat=(label,val,sub)=>`<div class="stat"><small>${label}</small><b>${peso(val)}</b>${sub?`<span class="dsub">${sub}</span>`:''}</div>`;
+  return `<section class="card"><h2>Earnings report</h2>
+  <p class="hint">Management and rider earnings, and how many bookings came in, for the date range below. Defaults to today.</p>
+  <div class="grid2">
+   <label class="f">From<input type="date" data-b="ui.report.from" data-rr="1" value="${f.from}"></label>
+   <label class="f">To<input type="date" data-b="ui.report.to" data-rr="1" value="${f.to}"></label>
+  </div>
+  <div class="stats">
+   ${stat('Management total earnings',mgmtTotal)}
+   ${stat('Rider total earnings',riderTotal)}
+   ${stat('Gross amount (all bookings)',grossTotal,'Before splitting into management/rider shares')}
+   ${stat('Bookings / transactions',inRange.length,'Disregarded bookings excluded')}
+  </div>
+  ${riders.length?`<h3 style="margin-top:14px">By rider</h3>
+  <div class="dtable"><table><thead><tr><th>Rider</th><th>Bookings</th><th>Rider earnings</th><th>Management earnings</th></tr></thead>
+  <tbody>${riders.map(r=>`<tr><td>${esc(r)}</td><td class="num">${byRider[r].bookings}</td><td class="num">${peso(byRider[r].rider)}</td><td class="num">${peso(byRider[r].mgmt)}</td></tr>`).join('')}</tbody>
+  <tfoot><tr style="font-weight:700;border-top:2px solid var(--line)"><td>Total</td><td class="num">${inRange.length}</td><td class="num">${peso(riderTotal)}</td><td class="num">${peso(mgmtTotal)}</td></tr></tfoot>
+  </table></div>`:'<p class="empty">No bookings in this range.</p>'}
+  </section>`;
+}
 function vSettings(){
   const s=S.settings;
   return `<section class="card"><h2>Time zone</h2>
