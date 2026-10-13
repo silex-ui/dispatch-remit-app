@@ -55,6 +55,9 @@ textarea{resize:vertical}
 .flaglist{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:6px}
 .flaglist li{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding:6px 0;font-size:.9rem}
 .flagbtns{display:flex;gap:6px;flex:none}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:10px}
+.segbtn{flex:1;border:0;background:transparent;color:var(--ink);padding:10px 0;font-weight:700;font-size:.9rem}
+.segbtn.on{background:var(--ink);color:var(--surface)}
 .flagbanner ul.flaglist li{border-bottom:1px dashed rgba(0,0,0,.08)}
 .btn.purple{background:var(--purple);color:var(--on)}.btn.orange{background:var(--orange);color:var(--on)}
 .btn.blue{background:var(--blue);color:var(--on)}.btn.yellow{background:var(--yellow);color:var(--yink)}
@@ -433,7 +436,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
   pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
-  fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
+  fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}}};
 const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
   cash:{type:'in',amt:'',mode:'pct',val:''},bills:[],billAmt:'',billPct:'1.5',bErr:'',fee:'120',disc:'0',hop:'0',wait:'0',other:'',otherNote:'',
@@ -827,11 +830,15 @@ function vDailySummary(riderName){
    <div class="f"><span>Rider</span><input type="text" value="${esc(riderName)}" disabled></div>
   </div>
   <div class="blk"><h4>Add fund</h4>
-  ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
-  <label class="f">Amount (negative to subtract)<input type="number" inputmode="decimal" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
+  ${canEdit?`<div class="seg" role="group" aria-label="Add or subtract">
+   <button type="button" class="segbtn ${ui.fundF.mode==='add'?'on':''}" data-a="fundMode" data-m="add">+ Add</button>
+   <button type="button" class="segbtn ${ui.fundF.mode==='sub'?'on':''}" data-a="fundMode" data-m="sub">&minus; Subtract</button>
+  </div>
+  <div class="grid2"><label class="f">Date<input type="date" data-b="fundF.date" value="${esc(ui.fundF.date)}"></label>
+  <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="fundF.amt" value="${esc(ui.fundF.amt)}"></label></div>
   <label class="f">Note<input type="text" data-b="fundF.note" value="${esc(ui.fundF.note)}" placeholder="Reason for this fund"></label>
   ${ui.fundF.err?`<p class="err" role="alert">${esc(ui.fundF.err)}</p>`:''}
-  <button class="btn" data-a="addFund">Add fund</button>`:''}
+  <button class="btn" data-a="addFund">${ui.fundF.mode==='sub'?'Subtract fund':'Add fund'}</button>`:''}
   ${fundEntries.length?`<div>${fundEntries.map(entryRow).join('')}</div>`:'<p class="empty">No fund entries in this date range.</p>'}</div>
   <div class="blk"><h4>Tip</h4><p class="hint">Add a tip manually, outside of a specific transaction's overpayment. Counted in Rider Earnings and Total Online Tip.</p>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="tipF.date" value="${esc(ui.tipF.date)}"></label>
@@ -1518,13 +1525,15 @@ function act(a,el,ev){
   case 'payCsv':exportPayCsv();return;
 
   /* remit */
+  case 'fundMode':ui.fundF.mode=el.dataset.m;break;
   case 'addFund':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.fundF.err='Pick a rider first.';break}
-    const amt=num(ui.fundF.amt),note=ui.fundF.note.trim();
-    if(!amt){ui.fundF.err='Enter a non-zero amount.';break}
+    const mag=Math.abs(num(ui.fundF.amt)),note=ui.fundF.note.trim();
+    if(!mag){ui.fundF.err='Enter a non-zero amount.';break}
     if(!note){ui.fundF.err='Add a note for this fund entry.';break}
+    const amt=ui.fundF.mode==='sub'?-mag:mag;
     S.ledger.push({id:uid(),ts:Date.now(),type:'fund',rider:riderSel,date:ui.fundF.date,amount:amt,note});
-    persist();ui.fundF={date:today(),amt:'',note:'',err:''};toast('Fund added');break;}
+    persist();ui.fundF={date:today(),amt:'',note:'',err:'',mode:'add'};toast(amt<0?'Fund subtracted':'Fund added');break;}
   case 'addDed':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.dedF.err='Pick a rider first.';break}
     const amt=num(ui.dedF.amt);
