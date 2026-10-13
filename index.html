@@ -725,19 +725,18 @@ function vHistory(){
   const list=ui.showAll?all:all.slice(0,10);
   const bc=bookingCountMap();
   const canEdit=me.role==='owner'||me.role==='admin';
-  const isOwner=me.role==='owner';
   const selCount=list.filter(t=>ui.selTx[t.id]).length;
   const allSel=list.length>0&&selCount===list.length;
   return `<section class="card"><h2>Transaction history${S.transactions.length?`<button class="btn ghost" data-a="historyCsv">Download history (.csv)</button>`:''}</h2>
-  ${isOwner&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
-  ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${isOwner?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
+  ${canEdit&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
+  ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b></div></div>
   <div class="pd"><span>${mopLabel(t)}</span><span>Received <b>${peso(t.received||0)}</b></span>${bal>0?`<span>Balance <b>${peso(bal)}</b></span>`:''}${t.tip?`<span>Tip <b>${peso(t.tip)}</b></span>`:''}</div>
   <div class="tools"><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>
   ${canEdit?`<button class="link" data-a="editPay" data-id="${t.id}">Update payment</button>`:''}
   <button class="link" data-a="hx" data-id="${t.id}">${ui.hx[t.id]?'Hide details':'Details'}</button>
-  ${me.role==='owner'?`<button class="link" style="color:var(--red)" data-a="delTx" data-id="${t.id}">Delete</button>`:''}</div>
+  ${canEdit?`<button class="link" style="color:var(--red)" data-a="delTx" data-id="${t.id}">Delete</button>`:''}</div>
   ${ui.hx[t.id]?`<div class="txd">${txDetail(t)}</div>`:''}</li>`}).join('')}</ul>`:'<p class="empty">Saved transactions appear here.</p>'}
   ${all.length>10?`<button class="btn ghost" data-a="showAll">${ui.showAll?'Show latest 10':'Show all '+all.length}</button>`:''}</section>`;
 }
