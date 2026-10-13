@@ -208,6 +208,13 @@ span.chip{display:inline-flex;align-items:center;min-height:0;padding:1px 10px}
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
+const genToken=()=>{
+  if(window.crypto&&crypto.getRandomValues){
+    const a=new Uint8Array(16);crypto.getRandomValues(a);
+    return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  return uid()+uid()+uid()+uid();
+};
 const pad=n=>String(n).padStart(2,'0');
 const today=()=>{
   const tz=(typeof S!=='undefined'&&S&&S.settings&&S.settings.timezone)||'Asia/Manila';
@@ -246,7 +253,7 @@ function normalize(s){
   s.ledger=s.ledger||[];
   s.riderDays=s.riderDays||{};
   s.flags=s.flags||[];
-  (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0});
+  (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0;if(!r.token)r.token=genToken()});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   return s;
 }
@@ -417,7 +424,7 @@ async function bootSync(){
   sync.status='connecting';render();
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
-    if(j.ok){S=normalize(j.data);sVer=j.version;lastSynced=clone(S);saveLocal();sync.status='online';sync.msg=''}
+    if(j.ok){S=normalize(j.data);sVer=j.version;lastSynced=clone(S);saveLocal();sync.status='online';sync.msg='';tryTokenLogin()}
     else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
   render();
@@ -443,6 +450,18 @@ async function pollOnce(){
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()}
 }
 let me=null,view='login';
+/* personal rider link: ?rt=<token> in the URL logs that rider straight in,
+   skipping role/name/PIN entirely. Tried once on boot and again after the
+   first successful server fetch, in case the token is newer than whatever
+   was cached on this device. */
+function tryTokenLogin(){
+  if(me)return;
+  const rt=new URLSearchParams(location.search).get('rt');
+  if(!rt)return;
+  const r=(S.settings.riders||[]).find(x=>x.token===rt);
+  if(r){me={role:'rider',rider:r.name};view='dash'}
+}
+tryTokenLogin();
 const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,showAll:false,hx:{},err:'',loginRole:'owner',loginRider:'',selTx:{},
   sumDate:today(),ibF:null,caF:null,
   rem:{rider:'all',from:today(),to:today()},
@@ -1212,7 +1231,8 @@ function vSettings(){
   <label class="f">Admin PIN<input id="sAdmin" type="text" inputmode="numeric" value="${esc(s.adminPin)}"></label>
   <button class="btn orange" data-a="savePins">Save PINs</button></section>
   <section class="card"><h2>Riders</h2>
-  ${s.riders.length?`<div>${s.riders.map(r=>`<div class="rowr"><div><strong>${esc(r.name)}</strong><div class="meta"><span>PIN ${esc(r.pin)}</span></div></div>${ib('orange','editRider',r.id,'Change PIN','pen')}${ib('red','delRider',r.id,'Remove rider','trash')}</div>`).join('')}</div>`:'<p class="empty">No riders yet. Add the first one below.</p>'}
+  <p class="hint">Each rider has a personal link that logs them straight into their own dashboard — no role, name or PIN to enter. Share it once; it keeps working until you rotate it.</p>
+  ${s.riders.length?`<div>${s.riders.map(r=>`<div class="rowr"><div><strong>${esc(r.name)}</strong><div class="meta"><span>PIN ${esc(r.pin)}</span></div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn ghost sm" data-a="riderLink" data-id="${r.id}">Get link</button>${ib('orange','editRider',r.id,'Change PIN','pen')}${ib('red','delRider',r.id,'Remove rider','trash')}</div></div>`).join('')}</div>`:'<p class="empty">No riders yet. Add the first one below.</p>'}
   <div class="grid2"><label class="f">Rider name<input id="rName" type="text" autocomplete="off"></label><label class="f">Rider PIN<input id="rPin" type="text" inputmode="numeric" autocomplete="off"></label></div>
   <p class="err" id="sErr" role="alert"></p>
   <button class="btn green" data-a="addRider">Add rider</button></section>`;
@@ -1294,6 +1314,12 @@ function vModal(){
     <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveFlag">Save</button></div>`;
   }else if(m.type==='csv'){
     body=`<h3>Copy the CSV</h3><p class="hint">Saving files isn't available in this view. Copy this text into a file that ends in .csv.</p><textarea rows="10" readonly onfocus="this.select()">${esc(m.text)}</textarea><div class="mbtns"><button class="btn" data-a="mclose">Close</button></div>`;
+  }else if(m.type==='riderLink'){
+    body=`<h3>${esc(m.name)}'s personal link</h3>
+    <p class="hint">Send this to ${esc(m.name)} (e.g. via Messenger or SMS). Opening it logs them straight into their own dashboard — no role, name or PIN needed.</p>
+    <textarea rows="2" readonly onfocus="this.select()">${esc(m.url)}</textarea>
+    <p class="hint">Anyone with this link can act as ${esc(m.name)}, so only share it with them directly. If it's ever shared by mistake, rotate it below to make the old link stop working.</p>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Close</button><button class="btn red" data-a="rotateRiderLink" data-id="${m.riderId||''}">Rotate link</button></div>`;
   }
   return `<div class="ov" data-a="mclose" data-ov="1"><div class="md" role="dialog" aria-modal="true">${body}</div></div>`;
 }
@@ -1624,11 +1650,18 @@ function act(a,el,ev){
   case 'addRider':{const n=$('#rName').value.trim(),p=$('#rPin').value.trim();
     if(!n||p.length<4){$('#sErr').textContent='Enter a name and a PIN of at least 4 digits.';return}
     if(S.settings.riders.some(r=>r.name.toLowerCase()===n.toLowerCase())){$('#sErr').textContent='That rider name already exists.';return}
-    S.settings.riders.push({id:uid(),name:n,pin:p,cashAdvance:0});persist();toast('Rider added');break;}
+    S.settings.riders.push({id:uid(),name:n,pin:p,cashAdvance:0,token:genToken()});persist();toast('Rider added');break;}
   case 'editRider':ui.modal={type:'rider',id};break;
   case 'saveRiderPin':{const p=$('#npin').value.trim();if(p.length<4){$('#mErr').textContent='Use at least 4 digits.';return}
     const r=S.settings.riders.find(x=>x.id===id);if(r){r.pin=p;persist()}closeModal();toast('PIN updated');break;}
   case 'delRider':S.settings.riders=S.settings.riders.filter(r=>r.id!==id);persist();toast('Rider removed');break;
+  case 'riderLink':{const r=S.settings.riders.find(x=>x.id===id);if(!r)return;
+    const url=location.origin+location.pathname+'?rt='+r.token;
+    ui.modal={type:'riderLink',riderId:r.id,name:r.name,url};break;}
+  case 'rotateRiderLink':{const r=S.settings.riders.find(x=>x.id===id);if(!r)return;
+    r.token=genToken();persist();
+    const url=location.origin+location.pathname+'?rt='+r.token;
+    ui.modal={type:'riderLink',riderId:r.id,name:r.name,url};toast('Link rotated — the old link no longer works');break;}
   }
   render();
 }
