@@ -352,8 +352,8 @@ function mergeSettings(base,local,remote){
   return out;
 }
 function mergeState(base,local,remote){
-  base=base||{};
-  return{
+  base=base||{};local=local||{};remote=remote||{};
+  const out={
     settings:mergeSettings(base.settings,local.settings,remote.settings),
     bookings:mergeArrayById(base.bookings,local.bookings,remote.bookings),
     transactions:mergeArrayById(base.transactions,local.transactions,remote.transactions),
@@ -361,6 +361,18 @@ function mergeState(base,local,remote){
     riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays),
     flags:mergeArrayById(base.flags,local.flags,remote.flags)
   };
+  // Safety net: if either side has a top-level field this version of the
+  // code doesn't explicitly know how to merge yet (e.g. a device still
+  // running slightly older code than the one that just added a new
+  // feature), carry it over instead of silently dropping it. Local wins
+  // when both have it, since it's the most recently touched copy.
+  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags']);
+  [local,remote].forEach(src=>{
+    Object.keys(src).forEach(k=>{
+      if(!known.has(k)&&!(k in out))out[k]=src[k];
+    });
+  });
+  return out;
 }
 
 /* -- push local changes to the shared backend, debounced -- */
