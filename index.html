@@ -51,6 +51,10 @@ textarea{resize:vertical}
 .btn[disabled]{opacity:.55;cursor:default}
 .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 .btn.red{background:var(--red);color:var(--on)}.btn.green{background:var(--green);color:var(--on)}
+.btn.sm{min-height:30px;padding:0 10px;font-size:.78rem;border-radius:9px}
+.flaglist{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:6px}
+.flaglist li{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding:6px 0;font-size:.9rem}
+.flagbanner ul.flaglist li{border-bottom:1px dashed rgba(0,0,0,.08)}
 .btn.purple{background:var(--purple);color:var(--on)}.btn.orange{background:var(--orange);color:var(--on)}
 .btn.blue{background:var(--blue);color:var(--on)}.btn.yellow{background:var(--yellow);color:var(--yink)}
 .btn.full{width:100%}
@@ -231,12 +235,13 @@ const KEY='delivery_dispatch_remit_v1';
    Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
 const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
 const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
-const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila'},bookings:[],transactions:[],ledger:[],riderDays:{}});
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila'},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[]});
 function normalize(s){
   if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
   s.ledger=s.ledger||[];
   s.riderDays=s.riderDays||{};
+  s.flags=s.flags||[];
   (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   return s;
@@ -349,7 +354,8 @@ function mergeState(base,local,remote){
     bookings:mergeArrayById(base.bookings,local.bookings,remote.bookings),
     transactions:mergeArrayById(base.transactions,local.transactions,remote.transactions),
     ledger:mergeArrayById(base.ledger,local.ledger,remote.ledger),
-    riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays)
+    riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays),
+    flags:mergeArrayById(base.flags,local.flags,remote.flags)
   };
 }
 
@@ -426,7 +432,8 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
   pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
-  fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''}};
+  fundF:{date:today(),amt:'',note:'',err:''},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
+  flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}}};
 const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
   cash:{type:'in',amt:'',mode:'pct',val:''},bills:[],billAmt:'',billPct:'1.5',bErr:'',fee:'120',disc:'0',hop:'0',wait:'0',other:'',otherNote:'',
   bookingId:null,result:null,mop:'online',account:'keem',received:'',splitCash:'',splitOnline:'',status:'nyp',msg:'',savedId:null});
@@ -551,6 +558,7 @@ function vShell(){
   else if(view==='remit')body=vRemit();
   else if(view==='paystatus')body=vPaymentStatus();
   else if(view==='report')body=me.role==='owner'?vReport():vDash();
+  else if(view==='flags')body=(me.role==='owner'||me.role==='admin')?vFlags():vDash();
   else if(view==='settings')body=vSettings();
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
   <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${body}`;
@@ -562,8 +570,26 @@ function vDash(){
   items.push(['remit',me.role==='rider'?'My remit':'Rider remit','Collections, rider share and CSV export']);
   if(me.role==='owner'||me.role==='admin')items.push(['paystatus','Payment status','All customers — view, update and follow up on payments']);
   if(me.role==='owner')items.push(['report','Earnings report','Management & rider earnings and bookings by date']);
+  if(me.role==='owner'||me.role==='admin')items.push(['flags','Flags & Notes','Blocked customers, rider restrictions and reminders']);
   if(me.role==='owner')items.push(['settings','Settings','PINs, riders and rider share']);
-  return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>`;
+  return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>${(me.role==='owner'||me.role==='admin')?vFlagsBanner():''}`;
+}
+
+function vFlagsBanner(){
+  const fl=S.flags||[];
+  const blocks=fl.filter(f=>f.kind==='block');
+  const riderBlocks=fl.filter(f=>f.kind==='riderBlock');
+  const itemBans=fl.filter(f=>f.kind==='itemBan');
+  const notes=fl.filter(f=>f.kind==='note');
+  if(!fl.length)return'';
+  const line=(main,sub)=>`<li><strong>${esc(main)}</strong>${sub?` — ${esc(sub)}`:''}</li>`;
+  return `<section class="card flagbanner" style="margin-top:14px;border-color:var(--red)">
+  <h3 style="color:var(--red)">&#9888; Flags &amp; Notes</h3>
+  ${blocks.length?`<p class="hint" style="margin:6px 0 2px">Blocked / account-frozen customers</p><ul class="flaglist">${blocks.map(f=>line(f.customer,f.reason)).join('')}</ul>`:''}
+  ${riderBlocks.length?`<p class="hint" style="margin:6px 0 2px">Customers not allowed for specific riders</p><ul class="flaglist">${riderBlocks.map(f=>line(`${f.customer} → not ${f.rider}`,f.reason)).join('')}</ul>`:''}
+  ${itemBans.length?`<p class="hint" style="margin:6px 0 2px">Item restrictions</p><ul class="flaglist">${itemBans.map(f=>line(`${f.rider}: ${f.item}`,f.note)).join('')}</ul>`:''}
+  ${notes.length?`<p class="hint" style="margin:6px 0 2px">Reminders</p><ul class="flaglist">${notes.map(f=>line(f.rider?`${f.rider}`:'General',f.note)).join('')}</ul>`:''}
+  </section>`;
 }
 
 function vRiderBookings(){
@@ -1104,6 +1130,56 @@ function vReport(){
   </table></div>`:'<p class="empty">No bookings in this range.</p>'}
   </section>`;
 }
+/* flags & notes */
+function vFlags(){
+  const names=S.settings.riders.map(r=>r.name);
+  const riderOpts=(sel)=>`<option value="">(any rider)</option>${names.map(n=>`<option value="${esc(n)}" ${sel===n?'selected':''}>${esc(n)}</option>`).join('')}`;
+  const fl=S.flags||[];
+  const blocks=fl.filter(f=>f.kind==='block');
+  const riderBlocks=fl.filter(f=>f.kind==='riderBlock');
+  const itemBans=fl.filter(f=>f.kind==='itemBan');
+  const notes=fl.filter(f=>f.kind==='note');
+  const delBtn=id=>`<button class="btn ghost sm" data-a="delFlag" data-id="${id}">Delete</button>`;
+  const bF=ui.flagF.block,rF=ui.flagF.riderBlock,iF=ui.flagF.itemBan,nF=ui.flagF.note;
+  return `<section class="card"><h2>Flags &amp; Notes</h2>
+  <p class="hint">Blocked customers, rider-specific restrictions and reminders. Visible to Owner and Admin only.</p>
+
+  <h3>Blocked / account-frozen customers</h3>
+  <div class="grid2">
+   <label class="f">Customer name<input data-b="ui.flagF.block.customer" value="${esc(bF.customer)}"></label>
+   <label class="f">Reason<input data-b="ui.flagF.block.reason" value="${esc(bF.reason)}" placeholder="Long overdue balance, bad attitude, etc."></label>
+  </div>
+  <button class="btn blue" data-a="addBlock">Add blocked customer</button>
+  ${blocks.length?`<ul class="flaglist">${blocks.map(f=>`<li><strong>${esc(f.customer)}</strong>${f.reason?` — ${esc(f.reason)}`:''} ${delBtn(f.id)}</li>`).join('')}</ul>`:'<p class="empty">No blocked customers.</p>'}
+
+  <h3 style="margin-top:18px">Customers not allowed for a specific rider</h3>
+  <div class="grid2">
+   <label class="f">Customer name<input data-b="ui.flagF.riderBlock.customer" value="${esc(rF.customer)}"></label>
+   <label class="f">Rider<select data-b="ui.flagF.riderBlock.rider">${riderOpts(rF.rider)}</select></label>
+  </div>
+  <label class="f">Reason<input data-b="ui.flagF.riderBlock.reason" value="${esc(rF.reason)}" placeholder="Why this customer should not be assigned to this rider"></label>
+  <button class="btn blue" data-a="addRiderBlock">Add restriction</button>
+  ${riderBlocks.length?`<ul class="flaglist">${riderBlocks.map(f=>`<li><strong>${esc(f.customer)}</strong> &rarr; not ${esc(f.rider)}${f.reason?` — ${esc(f.reason)}`:''} ${delBtn(f.id)}</li>`).join('')}</ul>`:'<p class="empty">No rider-specific customer restrictions.</p>'}
+
+  <h3 style="margin-top:18px">Item restrictions per rider</h3>
+  <div class="grid2">
+   <label class="f">Rider<select data-b="ui.flagF.itemBan.rider">${riderOpts(iF.rider)}</select></label>
+   <label class="f">Item not allowed<input data-b="ui.flagF.itemBan.item" value="${esc(iF.item)}"></label>
+  </div>
+  <label class="f">Note<input data-b="ui.flagF.itemBan.note" value="${esc(iF.note)}" placeholder="Optional note"></label>
+  <button class="btn blue" data-a="addItemBan">Add item restriction</button>
+  ${itemBans.length?`<ul class="flaglist">${itemBans.map(f=>`<li><strong>${esc(f.rider)}</strong>: ${esc(f.item)}${f.note?` — ${esc(f.note)}`:''} ${delBtn(f.id)}</li>`).join('')}</ul>`:'<p class="empty">No item restrictions.</p>'}
+
+  <h3 style="margin-top:18px">Reminders</h3>
+  <p class="hint">E.g. "not available every Friday", "only rider available today".</p>
+  <div class="grid2">
+   <label class="f">Rider (optional)<select data-b="ui.flagF.note.rider">${riderOpts(nF.rider)}</select></label>
+   <label class="f">Reminder<input data-b="ui.flagF.note.note" value="${esc(nF.note)}"></label>
+  </div>
+  <button class="btn blue" data-a="addNote">Add reminder</button>
+  ${notes.length?`<ul class="flaglist">${notes.map(f=>`<li>${f.rider?`<strong>${esc(f.rider)}</strong>: `:''}${esc(f.note)} ${delBtn(f.id)}</li>`).join('')}</ul>`:'<p class="empty">No reminders.</p>'}
+  </section>`;
+}
 function vSettings(){
   const s=S.settings;
   return `<section class="card"><h2>Time zone</h2>
@@ -1468,6 +1544,25 @@ function act(a,el,ev){
     persist();toast('Day posted — remit marked as settled, next day started');break;}
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
+
+  /* flags & notes */
+  case 'addBlock':{const f=ui.flagF.block,customer=f.customer.trim();
+    if(!customer){toast('Enter a customer name');return}
+    S.flags.push({id:uid(),ts:Date.now(),kind:'block',customer,reason:f.reason.trim()});
+    persist();ui.flagF.block={customer:'',reason:''};toast('Blocked customer added');break;}
+  case 'addRiderBlock':{const f=ui.flagF.riderBlock,customer=f.customer.trim();
+    if(!customer||!f.rider){toast('Enter a customer name and pick a rider');return}
+    S.flags.push({id:uid(),ts:Date.now(),kind:'riderBlock',customer,rider:f.rider,reason:f.reason.trim()});
+    persist();ui.flagF.riderBlock={customer:'',rider:'',reason:''};toast('Restriction added');break;}
+  case 'addItemBan':{const f=ui.flagF.itemBan,item=f.item.trim();
+    if(!f.rider||!item){toast('Pick a rider and enter an item');return}
+    S.flags.push({id:uid(),ts:Date.now(),kind:'itemBan',rider:f.rider,item,note:f.note.trim()});
+    persist();ui.flagF.itemBan={rider:'',item:'',note:''};toast('Item restriction added');break;}
+  case 'addNote':{const f=ui.flagF.note,note=f.note.trim();
+    if(!note){toast('Enter a reminder');return}
+    S.flags.push({id:uid(),ts:Date.now(),kind:'note',rider:f.rider,note});
+    persist();ui.flagF.note={rider:'',note:''};toast('Reminder added');break;}
+  case 'delFlag':S.flags=S.flags.filter(f=>f.id!==id);persist();toast('Entry deleted');break;
 
   /* settings */
   case 'savePins':{const o=$('#sOwner').value.trim(),ad=$('#sAdmin').value.trim();
