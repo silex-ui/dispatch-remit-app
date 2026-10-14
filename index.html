@@ -760,7 +760,11 @@ function payFields(prefix,c,total){
   :`<label class="f">Amount received<div style="display:flex;gap:6px;align-items:center"><input type="number" inputmode="decimal" min="0" step="any" data-b="${prefix}.received" value="${esc(c.received)}" style="flex:1"><button type="button" class="btn ghost" style="padding:0 10px;min-height:38px;font-size:.8rem;flex:none" data-a="exactAmt" data-b="${prefix}.received" data-v="${total}">EXACT</button></div></label>`}
   ${c.mop==='cash'
     ?`<label class="f">Status<select data-b="${prefix}.status" disabled><option value="verified" selected>VERIFIED</option></select><span class="hint">Locked — Cash payments are always Verified.</span></label>`
-    :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>`}
+    :(me.role!=='owner'
+      ?(c.status==='verified'
+        ?`<label class="f">Status<select data-b="${prefix}.status" disabled><option value="verified" selected>VERIFIED</option></select><span class="hint">🔒 Locked — only the Owner can change a Verified online payment.</span></label>`
+        :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select><span class="hint">Only the Owner can mark an online payment as Verified.</span></label>`)
+      :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>`)}
   ${bal>0?`<p class="hint num">Balance ${peso(bal)} still due from the customer.</p>`:''}
   ${excess>0?`<p class="hint num">Amount received is ${peso(excess)} more than the total — you'll be asked whether to give it to the rider as a tip.</p>`:''}
   ${c.mop!=='cash'?`<p class="hint">This payment is reflected in the rider's earnings/remit right away, even while status is NYP.</p>`:''}
@@ -1515,6 +1519,7 @@ function act(a,el,ev){
   case 'saveEditPay':{const t=S.transactions.find(x=>x.id===id);if(!t)return;
     const m=ui.modal,recv=receivedOf(m),excess=Math.max(0,recv-t.r.total);
     if(m.mop==='split'&&m.status!=='nyp'&&!m.account){$('#mErr').textContent='Choose which account received the online portion before saving.';return}
+    if(m.mop!=='cash'&&m.status==='verified'&&t.status!=='verified'&&me.role!=='owner'){$('#mErr').textContent='Only the Owner can mark an online payment as Verified.';return}
     const status=m.mop==='cash'?'verified':m.status;
     const fields={mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,notes:(m.notes||'').trim()};
     if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesEdit',no:'tipNoEdit',_id:id,_fields:fields};break}
@@ -1545,6 +1550,7 @@ function act(a,el,ev){
     if(!m.rider.trim()){$('#mErr').textContent='Enter or choose the rider.';return}
     if(!(amount>0)){$('#mErr').textContent='Enter the amount due.';return}
     if(m.mop==='split'&&m.status!=='nyp'&&!m.account){$('#mErr').textContent='Choose which account received the online portion before saving.';return}
+    if(m.mop!=='cash'&&m.status==='verified'&&me.role!=='owner'){$('#mErr').textContent='Only the Owner can mark an online payment as Verified.';return}
     const recv=receivedOf(m),excess=Math.max(0,recv-amount),status=m.mop==='cash'?'verified':m.status;
     const newTx={id:uid(),ts:Date.now(),date:m.date,customer:m.customer.trim(),rider:m.rider.trim(),
       r:{pabili:0,service:0,cashType:'in',cashAmt:0,cashCharge:0,cashMode:'pct',cashVal:0,bills:0,billPct:0,billCharge:0,
@@ -1701,7 +1707,14 @@ document.addEventListener('change',e=>{
   if(el.dataset.b==='c.rider'&&el.value==='__m'){calc.riderManual=true;calc.rider='';render();return}
   if(el.dataset.b==='m.rider'&&el.value==='__m'&&ui.modal&&ui.modal.type==='addPay'){ui.modal.riderManual=true;ui.modal.rider='';render();return}
   setPath(el.dataset.b,el.value);
-  if(/\.mop$/.test(el.dataset.b)&&el.value==='cash')setPath(el.dataset.b.slice(0,-4)+'.status','verified');
+  if(/\.mop$/.test(el.dataset.b)){
+    const base=el.dataset.b.slice(0,-4);
+    if(el.value==='cash')setPath(base+'.status','verified');
+    else if(me.role!=='owner'){
+      const obj=base==='c'?calc:base==='m'?ui.modal:null;
+      if(obj&&obj.status==='verified')setPath(base+'.status','nyp');
+    }
+  }
   if(el.dataset.b==='s.timezone'){persist();toast('Time zone updated')}
   if(el.tagName==='SELECT'||el.dataset.rr)render();
 });
