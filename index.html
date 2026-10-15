@@ -964,12 +964,12 @@ function payList(){
   ).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
 }
 function vPaymentStatus(){
-  const f=ui.pay,list=payList();
+  const f=ui.pay,list=payList(),canDelete=me.role==='owner';
   const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
   const selCount=list.filter(t=>ui.selPay[t.id]).length;
   const allSel=list.length>0&&selCount===list.length;
   const row=t=>{const bal=balanceOf(t);return `<tr class="${t.status==='disreg'?'disreg-row':''}">
-    <td><input type="checkbox" class="bigchk" data-a="selPay" data-id="${t.id}" ${ui.selPay[t.id]?'checked':''} aria-label="Select"></td>
+    <td>${canDelete?`<input type="checkbox" class="bigchk" data-a="selPay" data-id="${t.id}" ${ui.selPay[t.id]?'checked':''} aria-label="Select">`:''}</td>
     <td>${fmtDate(t.date)}</td>
     <td>${esc(t.customer)}</td>
     <td>${esc(t.rider)}</td>
@@ -997,8 +997,8 @@ function vPaymentStatus(){
    <button class="btn green" data-a="addPayNew">+ Add record</button>
    <button class="btn blue" data-a="downloadPayStatus">Download list (.jpeg)</button>
    <button class="btn ghost" data-a="payCsv">Export .csv</button>
-   <label class="ck"><input type="checkbox" class="bigchk" data-a="selAllPay" ${allSel?'checked':''}> Select all</label>
-   ${selCount?`<button class="btn red" data-a="delSelPay">Delete selected (${selCount})</button>`:''}
+   ${canDelete?`<label class="ck"><input type="checkbox" class="bigchk" data-a="selAllPay" ${allSel?'checked':''}> Select all</label>
+   ${selCount?`<button class="btn red" data-a="delSelPay">Delete selected (${selCount})</button>`:''}`:''}
   </div>
   ${list.length?(()=>{
     const tDue=list.reduce((s,t)=>s+t.r.total,0),tRecv=list.reduce((s,t)=>s+(t.received||0),0),tBal=list.reduce((s,t)=>s+balanceOf(t),0);
@@ -1567,12 +1567,12 @@ function act(a,el,ev){
     S.transactions.push(Object.assign(m._newTx,{tip}));
     persist();closeModal();toast('Record added'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
   case 'overpayNoAddPay':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
-  case 'selPay':if(el.checked)ui.selPay[id]=true;else delete ui.selPay[id];break;
-  case 'selAllPay':{const list=payList();const allSel=list.length>0&&list.every(t=>ui.selPay[t.id]);
+  case 'selPay':if(me.role!=='owner')return;if(el.checked)ui.selPay[id]=true;else delete ui.selPay[id];break;
+  case 'selAllPay':{if(me.role!=='owner')return;const list=payList();const allSel=list.length>0&&list.every(t=>ui.selPay[t.id]);
     if(allSel)list.forEach(t=>delete ui.selPay[t.id]);else list.forEach(t=>ui.selPay[t.id]=true);break;}
-  case 'delSelPay':{const n=Object.keys(ui.selPay).filter(k=>ui.selPay[k]).length;if(!n)return;
+  case 'delSelPay':{if(me.role!=='owner')return;const n=Object.keys(ui.selPay).filter(k=>ui.selPay[k]).length;if(!n)return;
     ui.modal={type:'confirm',title:'Delete selected records?',msg:'This will permanently delete '+n+' customer record(s) and leave the remit totals.',yes:'delSelPayYes'};break;}
-  case 'delSelPayYes':S.transactions=S.transactions.filter(t=>!ui.selPay[t.id]);ui.selPay={};persist();closeModal();toast('Selected records deleted');break;
+  case 'delSelPayYes':if(me.role!=='owner')return;S.transactions=S.transactions.filter(t=>!ui.selPay[t.id]);ui.selPay={};persist();closeModal();toast('Selected records deleted');break;
   case 'downloadPayStatus':downloadPayStatusImage();break;
   case 'downloadRemitImage':downloadRemitSummaryImage(el.dataset.rider);return;
   case 'payCsv':exportPayCsv();return;
