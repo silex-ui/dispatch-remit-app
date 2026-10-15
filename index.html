@@ -766,7 +766,7 @@ function payFields(prefix,c,total){
         :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select><span class="hint">Only the Owner can mark an online payment as Verified.</span></label>`)
       :`<label class="f">Status<select data-b="${prefix}.status"><option value="nyp" ${c.status==='nyp'?'selected':''}>NYP — Not yet paid</option><option value="paid" ${c.status==='paid'?'selected':''}>PAID</option><option value="verified" ${c.status==='verified'?'selected':''}>VERIFIED</option><option value="disreg" ${c.status==='disreg'?'selected':''}>DISREG</option></select></label>`)}
   ${bal>0?`<p class="hint num">Balance ${peso(bal)} still due from the customer.</p>`:''}
-  ${excess>0?`<p class="hint num">Amount received is ${peso(excess)} more than the total — you'll be asked whether to give it to the rider as a tip.</p>`:''}
+  ${excess>0?`<p class="hint num">Amount received is ${peso(excess)} more than the total — you'll be asked to confirm, then it's applied automatically (₱1–₱300 excess → tip to rider, otherwise → management collection).</p>`:''}
   ${c.mop!=='cash'?`<p class="hint">This payment is reflected in the rider's earnings/remit right away, even while status is NYP.</p>`:''}
   ${c.mop==='split'&&c.status==='nyp'?`<p class="hint">Received-to-account stays empty while status is NYP — it's set once the payment is actually confirmed.</p>`:''}
   ${c.mop==='split'&&c.status!=='nyp'&&!c.account?`<p class="err">Choose which account received the online portion before saving.</p>`:''}
@@ -792,13 +792,15 @@ function bookingCountMap(){
   return map;
 }
 function vHistory(){
-  const all=S.transactions.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+  const t0=today();
+  const all=S.transactions.filter(t=>t.date===t0).sort((a,b)=>b.ts-a.ts);
   const list=ui.showAll?all:all.slice(0,10);
   const bc=bookingCountMap();
   const canEdit=me.role==='owner'||me.role==='admin';
   const selCount=list.filter(t=>ui.selTx[t.id]).length;
   const allSel=list.length>0&&selCount===list.length;
   return `<section class="card"><h2>Transaction history${S.transactions.length?`<button class="btn ghost" data-a="historyCsv">Download history (.csv)</button>`:''}</h2>
+  <p class="hint">Showing today's transactions only. Every transaction, past and present, stays listed on the Payment Status dashboard — nothing shown only here is ever deleted.</p>
   ${canEdit&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
   ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div></div></div>
@@ -1283,7 +1285,7 @@ function vModal(){
     body=`<h3>Update payment</h3><p class="hint">${esc(t?t.customer:'')} &middot; Total ${peso(t?t.r.total:0)}</p>
     ${payFields('m',m,t?t.r.total:0)}
     <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
-    <p class="err" id="mErr" role="alert"></p>
+    <p class="err" id="mErr" role="alert">${esc(m.err||'')}</p>
     <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveEditPay" data-id="${m.id}">Save payment</button></div>`;
   }else if(m.type==='addPay'){
     const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
@@ -1297,11 +1299,11 @@ function vModal(){
     <div class="f"><span>Rider</span>${riderField}</div>
     ${payFields('m',m,num(m.amount)||0)}
     <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
-    <p class="err" id="mErr" role="alert"></p>
+    <p class="err" id="mErr" role="alert">${esc(m.err||'')}</p>
     <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveAddPay">Add record</button></div>`;
-  }else if(m.type==='tip'){
-    body=`<h3>Excess payment received</h3><p>The amount received is ${peso(m.excess)} more than the total due. Give the excess to the rider as a tip, added to their earnings?</p>
-    <div class="mbtns"><button class="btn ghost" data-a="${m.no}">No, keep as collection</button><button class="btn green" data-a="${m.yes}">Yes, add as tip</button></div>`;
+  }else if(m.type==='overpay'){
+    body=`<h3>Confirm overpayment</h3><p>There is an overpayment of ${peso(m.excess)}. Are you sure this payment is for this transaction only?</p>
+    <div class="mbtns"><button class="btn ghost" data-a="${m.no}">No</button><button class="btn green" data-a="${m.yes}">Yes</button></div>`;
   }else if(m.type==='flag'){
     const names=S.settings.riders.map(r=>r.name);
     const ropts=(sel)=>`<option value="">(any rider)</option>${names.map(n=>`<option value="${esc(n)}" ${sel===n?'selected':''}>${esc(n)}</option>`).join('')}`;
@@ -1522,17 +1524,19 @@ function act(a,el,ev){
     if(m.mop!=='cash'&&m.status==='verified'&&t.status!=='verified'&&me.role!=='owner'){$('#mErr').textContent='Only the Owner can mark an online payment as Verified.';return}
     const status=m.mop==='cash'?'verified':m.status;
     const fields={mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,notes:(m.notes||'').trim()};
-    if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesEdit',no:'tipNoEdit',_id:id,_fields:fields};break}
+    if(excess>0){ui.modal={type:'overpay',excess,yes:'overpayYesEdit',no:'overpayNoEdit',_id:id,_fields:fields,_orig:m};break}
     Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
-  case 'tipYesEdit':case 'tipNoEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
-    if(t){Object.assign(t,m._fields,{tip:a==='tipYesEdit'?m.excess:0});if(m._fields.status!=='paid'&&m._fields.status!=='verified')t.remitted=false;persist()}
-    closeModal();toast('Payment updated'+(a==='tipYesEdit'?' — excess added as rider tip':''));break;}
+  case 'overpayYesEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
+    const tip=(m.excess>=1&&m.excess<=300)?m.excess:0;
+    if(t){Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified')t.remitted=false;persist()}
+    closeModal();toast('Payment updated'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
+  case 'overpayNoEdit':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
   case 'hx':ui.hx[id]=!ui.hx[id];break;
   case 'showAll':ui.showAll=!ui.showAll;break;
   case 'delTx':ui.modal={type:'confirm',title:'Delete this transaction?',msg:'It will also leave the remit totals.',yes:'delTxYes',id};break;
   case 'delTxYes':S.transactions=S.transactions.filter(t=>t.id!==id);persist();closeModal();toast('Transaction deleted');break;
   case 'selTx':if(el.checked)ui.selTx[id]=true;else delete ui.selTx[id];break;
-  case 'selAllTx':{const all=S.transactions.slice().sort((x,y)=>y.ts-x.ts);const list=ui.showAll?all:all.slice(0,10);
+  case 'selAllTx':{const t0=today();const all=S.transactions.filter(t=>t.date===t0).sort((x,y)=>y.ts-x.ts);const list=ui.showAll?all:all.slice(0,10);
     const allSel=list.length>0&&list.every(t=>ui.selTx[t.id]);
     if(allSel)list.forEach(t=>delete ui.selTx[t.id]);else list.forEach(t=>ui.selTx[t.id]=true);break;}
   case 'delSelTx':{const n=Object.keys(ui.selTx).filter(k=>ui.selTx[k]).length;if(!n)return;
@@ -1557,11 +1561,12 @@ function act(a,el,ev){
          fee:amount,disc:0,hop:0,wait:0,other:0,otherNote:'',pabiliList:[],billList:[],goods:0,fees:amount,total:amount},
       mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,
       splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,tip:0,remitted:false,notes:(m.notes||'').trim()};
-    if(excess>0){ui.modal={type:'tip',excess,yes:'tipYesAddPay',no:'tipNoAddPay',_newTx:newTx};break}
+    if(excess>0){ui.modal={type:'overpay',excess,yes:'overpayYesAddPay',no:'overpayNoAddPay',_newTx:newTx,_orig:m};break}
     S.transactions.push(newTx);persist();closeModal();toast('Record added');break;}
-  case 'tipYesAddPay':case 'tipNoAddPay':{const m=ui.modal;
-    S.transactions.push(Object.assign(m._newTx,{tip:a==='tipYesAddPay'?m.excess:0}));
-    persist();closeModal();toast('Record added'+(a==='tipYesAddPay'?' — excess added as rider tip':''));break;}
+  case 'overpayYesAddPay':{const m=ui.modal,tip=(m.excess>=1&&m.excess<=300)?m.excess:0;
+    S.transactions.push(Object.assign(m._newTx,{tip}));
+    persist();closeModal();toast('Record added'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
+  case 'overpayNoAddPay':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
   case 'selPay':if(el.checked)ui.selPay[id]=true;else delete ui.selPay[id];break;
   case 'selAllPay':{const list=payList();const allSel=list.length>0&&list.every(t=>ui.selPay[t.id]);
     if(allSel)list.forEach(t=>delete ui.selPay[t.id]);else list.forEach(t=>ui.selPay[t.id]=true);break;}
