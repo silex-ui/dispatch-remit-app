@@ -427,7 +427,17 @@ async function bootSync(){
   sync.status='connecting';render();
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
-    if(j.ok){S=normalize(j.data);sVer=j.version;lastSynced=clone(S);saveLocal();sync.status='online';sync.msg='';tryTokenLogin()}
+    if(j.ok){
+      // Merge instead of overwriting: S may already hold something saved on this
+      // device moments ago (e.g. a just-added booking) whose background push to
+      // the sheet hadn't landed yet when the page reloaded. A blind overwrite here
+      // would silently erase it even though nothing was actually lost upstream.
+      const remote=normalize(j.data);
+      const merged=normalize(mergeState(lastSynced,S,remote));
+      S=merged;sVer=j.version;lastSynced=clone(remote);saveLocal();
+      sync.status='online';sync.msg='';tryTokenLogin();
+      if(!deepEq(S,remote))schedulePush(); // we were holding local edits the sheet doesn't have yet — send them now
+    }
     else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
   render();
