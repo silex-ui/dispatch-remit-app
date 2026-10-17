@@ -491,6 +491,37 @@ async function manualSync(){
   pollFails=0;pollBackoffUntil=0;
   await bootSync();
 }
+/* -- "Make this device the source of truth": an explicit, owner-triggered
+   override for when a device's saved data never reached the shared sheet
+   (e.g. it was running stale cached code) and the normal merge can't help
+   because the sheet itself is the stale side. Unlike a normal push, this
+   does NOT merge with whatever is on the sheet — it takes this device's
+   current data as-is and replaces the shared copy with it outright, then
+   every other device picks that up on its next sync. Retries a few times
+   against the latest version number in case another device pushes mid-way. -- */
+async function forcePushLocal(){
+  if(!API_ON){toast('Not connected — nothing to push.');return}
+  sync.status='saving';sync.msg='Pushing this device’s data to everyone…';render();
+  const snapshot=clone(S);
+  let lastErr='';
+  for(let attempt=0;attempt<5;attempt++){
+    try{
+      const g=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
+      const ver=g&&g.ok?g.version:sVer;
+      const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(ver),data:JSON.stringify(snapshot)});
+      if(j.ok){
+        sVer=j.version;S=snapshot;lastSynced=clone(S);saveSyncedLocal(lastSynced);saveLocal();
+        pushFails=0;sync.status='online';sync.msg='';sync.lastOkAt=Date.now();render();
+        toast('Done — this device’s data is now the shared copy.');
+        return;
+      }
+      if(j.conflict){continue} // someone else saved in between — retry with the newer version
+      lastErr=j.error||'Save failed';
+    }catch(e){lastErr=(e&&e.message)||'No connection'}
+  }
+  sync.status='offline';sync.msg=lastErr||'Could not push — try again in a moment';render();
+  toast('Could not push to the shared sheet. Check your connection and try again.');
+}
 /* -- poll cadence: back off while failing instead of hammering the Apps Script
    quota every few seconds during an actual outage, which only makes it worse
    and delays recovery for every device sharing the same script. -- */
@@ -1317,7 +1348,10 @@ function vSettings(){
   ${s.riders.length?`<div>${s.riders.map(r=>`<div class="rowr"><div><strong>${esc(r.name)}</strong><div class="meta"><span>PIN ${esc(r.pin)}</span></div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn ghost sm" data-a="riderLink" data-id="${r.id}">Get link</button>${ib('orange','editRider',r.id,'Change PIN','pen')}${ib('red','delRider',r.id,'Remove rider','trash')}</div></div>`).join('')}</div>`:'<p class="empty">No riders yet. Add the first one below.</p>'}
   <div class="grid2"><label class="f">Rider name<input id="rName" type="text" autocomplete="off"></label><label class="f">Rider PIN<input id="rPin" type="text" inputmode="numeric" autocomplete="off"></label></div>
   <p class="err" id="sErr" role="alert"></p>
-  <button class="btn green" data-a="addRider">Add rider</button></section>`;
+  <button class="btn green" data-a="addRider">Add rider</button></section>
+  ${API_ON?`<section class="card"><h2>Fix a device out of sync</h2>
+  <p class="hint">If another device (Admin's, a rider's, or your own on a different phone) is showing old or missing data while <strong>this</strong> device has the correct, up-to-date numbers, use this to push this device's data out to everyone — overwriting the shared copy. Only do this after reopening the link here (not an old tab) so you know this device is current.</p>
+  <button class="btn red" data-a="forceSyncAsk">Make this device the source of truth</button></section>`:''}`;
 }
 
 /* modal */
@@ -1373,6 +1407,11 @@ function vModal(){
     <label class="f">Notes<textarea data-b="m.notes" rows="2" placeholder="Follow-up notes, e.g. will pay Friday">${esc(m.notes||'')}</textarea></label>
     <p class="err" id="mErr" role="alert">${esc(m.err||'')}</p>
     <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn orange" data-a="saveAddPay">Add record</button></div>`;
+  }else if(m.type==='forceSync'){
+    body=`<h3>Make this device the source of truth?</h3>
+    <p>This overwrites the shared data with exactly what's saved on <strong>this device right now</strong>. Any bookings, payments or updates saved on other devices that haven't synced yet will be <strong>lost</strong>.</p>
+    <p class="hint">Use this only when you're sure this device has the correct, complete data and other devices are out of date — for example after confirming this phone shows the right totals. Everyone else will pick up this data automatically the next time their app syncs.</p>
+    <div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn red" data-a="doForceSync">Yes, overwrite everyone else</button></div>`;
   }else if(m.type==='overpay'){
     body=`<h3>Confirm overpayment</h3><p>There is an overpayment of ${peso(m.excess)}. Are you sure this payment is for this transaction only?</p>
     <div class="mbtns"><button class="btn ghost" data-a="${m.no}">No</button><button class="btn green" data-a="${m.yes}">Yes</button></div>`;
@@ -1703,6 +1742,8 @@ function act(a,el,ev){
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
   case 'syncNow':manualSync();return;
+  case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
+  case 'doForceSync':if(me.role!=='owner')return;closeModal();forcePushLocal();return;
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
 
