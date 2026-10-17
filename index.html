@@ -930,7 +930,7 @@ function vLedgerCard(riderName){
   const dedRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; Deduction</div><b class="num" style="color:var(--red)">&minus;${peso(e.amount)}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card"><h2>Rider fund &amp; deductions &mdash; ${esc(riderName)}</h2>
   <div class="stats"><div class="stat"><small>Fund balance</small><b>${peso(fund)}</b></div><div class="stat"><small>Deductions owed</small><b>${peso(ded)}</b></div><div class="stat"><small>Manual tips</small><b>${peso(tip)}</b></div>${ca>0?`<div class="stat"><small>Cash advance balance</small><b>${peso(ca)}</b></div>`:''}</div>
-  <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit, and automatically subtracted from the cash advance balance below.</p>
+  <div class="blk"><h4>Deduction</h4><p class="hint">Cash advance or amount the rider owes management — added to what they must remit, and automatically subtracted from the cash advance balance below. It only shows up in a day's "Deductions" total above if dated the same as that day's Summary date.</p>
   ${canEdit?`<div class="grid2"><label class="f">Date<input type="date" data-b="dedF.date" value="${esc(ui.dedF.date)}"></label>
   <label class="f">Amount<input type="number" inputmode="decimal" min="0" step="any" data-b="dedF.amt" value="${esc(ui.dedF.amt)}"></label></div>
   ${ui.dedF.err?`<p class="err" role="alert">${esc(ui.dedF.err)}</p>`:''}
@@ -1596,7 +1596,7 @@ function act(a,el,ev){
     if(!note){ui.fundF.err='Add a note for this fund entry.';break}
     const amt=ui.fundF.mode==='sub'?-mag:mag;
     S.ledger.push({id:uid(),ts:Date.now(),type:'fund',rider:riderSel,date:ui.fundF.date,amount:amt,note});
-    persist();ui.fundF={date:today(),amt:'',note:'',err:'',mode:'add'};toast(amt<0?'Fund subtracted':'Fund added');break;}
+    persist();ui.fundF={date:ui.sumDate,amt:'',note:'',err:'',mode:'add'};toast(amt<0?'Fund subtracted':'Fund added');break;}
   case 'addDed':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.dedF.err='Pick a rider first.';break}
     const amt=num(ui.dedF.amt);
@@ -1605,14 +1605,14 @@ function act(a,el,ev){
     {const rObj=S.settings.riders.find(r=>r.name===riderSel);
      if(rObj){caApplied=Math.min(amt,rObj.cashAdvance||0);rObj.cashAdvance=Math.max(0,(rObj.cashAdvance||0)-amt)}}
     S.ledger.push({id:uid(),ts:Date.now(),type:'deduction',rider:riderSel,date:ui.dedF.date,amount:amt,note:'',caApplied});
-    persist();ui.dedF={date:today(),amt:'',err:''};toast('Deduction added');break;}
+    persist();ui.dedF={date:ui.sumDate,amt:'',err:''};toast('Deduction added');break;}
   case 'addTip':{const riderSel=me.role==='rider'?me.rider:ui.rem.rider;
     if(riderSel==='all'){ui.tipF.err='Pick a rider first.';break}
     const amt=num(ui.tipF.amt),note=ui.tipF.note.trim();
     if(!(amt>0)){ui.tipF.err='Enter an amount greater than zero.';break}
     if(!note){ui.tipF.err='Add a note for this tip.';break}
     S.ledger.push({id:uid(),ts:Date.now(),type:'tip',rider:riderSel,date:ui.tipF.date,amount:amt,note});
-    persist();ui.tipF={date:today(),amt:'',note:'',err:''};toast('Tip added');break;}
+    persist();ui.tipF={date:ui.sumDate,amt:'',note:'',err:''};toast('Tip added');break;}
   case 'delLedger':ui.modal={type:'confirm',title:'Delete this entry?',msg:'This removes it from the fund/deduction/tip totals.',yes:'delLedgerYes',id};break;
   case 'delLedgerYes':{const e=S.ledger.find(x=>x.id===id);
     if(e&&e.type==='deduction'&&e.caApplied>0){const rObj=S.settings.riders.find(r=>r.name===e.rider);if(rObj)rObj.cashAdvance=(rObj.cashAdvance||0)+e.caApplied}
@@ -1638,6 +1638,7 @@ function act(a,el,ev){
     const nextKey=rdKey(rider,shiftDate(date,1));
     if(!S.riderDays[nextKey])S.riderDays[nextKey]={initialBudget:sum.totalRiderFund,posted:false};
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
+    ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
@@ -1722,6 +1723,10 @@ document.addEventListener('change',e=>{
   if(el.dataset.b==='c.rider'&&el.value==='__m'){calc.riderManual=true;calc.rider='';render();return}
   if(el.dataset.b==='m.rider'&&el.value==='__m'&&ui.modal&&ui.modal.type==='addPay'){ui.modal.riderManual=true;ui.modal.rider='';render();return}
   setPath(el.dataset.b,el.value);
+  // Keep the Add fund / Deduction / Tip date fields following whichever day the
+  // Daily rider summary is currently showing, so a new entry lands on the day
+  // being viewed by default instead of silently defaulting to today's date.
+  if(el.dataset.b==='ui.sumDate'){ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate}
   if(/\.mop$/.test(el.dataset.b)){
     const base=el.dataset.b.slice(0,-4);
     if(el.value==='cash')setPath(base+'.status','verified');
