@@ -464,14 +464,21 @@ async function bootSync(){
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
   render();
   if(pollTimer)clearInterval(pollTimer);
-  pollTimer=setInterval(pollOnce,3000);
+  pollTimer=setInterval(pollOnce,POLL_BASE_MS);
 }
+/* -- poll cadence: back off while failing instead of hammering the Apps Script
+   quota every few seconds during an actual outage, which only makes it worse
+   and delays recovery for every device sharing the same script. -- */
+const POLL_BASE_MS=8000;
+let pollFails=0,pollBackoffUntil=0;
 async function pollOnce(){
   if(!API_ON||pushing)return;
   if(!safeToRefresh())return;
+  if(Date.now()<pollBackoffUntil)return;
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
     if(j.ok){
+      pollFails=0;pollBackoffUntil=0;
       sync.status='online';sync.msg='';
       if(j.version!==sVer){
         const remote=normalize(j.data);
@@ -481,8 +488,14 @@ async function pollOnce(){
         if(changed)render();
         if(!deepEq(S,remote))schedulePush(); // we're holding local edits the sheet doesn't have yet — send them
       }
+    }else{
+      pollFails++;pollBackoffUntil=Date.now()+Math.min(60000,POLL_BASE_MS*Math.pow(2,Math.min(pollFails,4)));
+      sync.status='offline';sync.msg=j.error||'Could not reach the shared sheet — showing the last synced copy';render()
     }
-  }catch(e){sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()}
+  }catch(e){
+    pollFails++;pollBackoffUntil=Date.now()+Math.min(60000,POLL_BASE_MS*Math.pow(2,Math.min(pollFails,4)));
+    sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()
+  }
 }
 let me=null,view='login';
 /* personal rider link: ?rt=<token> in the URL logs that rider straight in,
