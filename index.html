@@ -330,6 +330,12 @@ let lastSynced=loadSyncedLocal();
 const clone=x=>JSON.parse(JSON.stringify(x));
 const deepEq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function mergeArrayById(base,local,remote){
+  // No baseline at all (this device has never completed a sync, including a
+  // device that had stale data cached from before baselines were persisted)
+  // means there's nothing to tell "local changed" apart from "local is just
+  // old" — so for anything both sides already have, trust the shared sheet
+  // rather than whatever happens to be sitting in this device's cache.
+  const noBaseline=!base;
   const bM={},lM={},rM={};
   (base||[]).forEach(x=>bM[x.id]=x);(local||[]).forEach(x=>lM[x.id]=x);(remote||[]).forEach(x=>rM[x.id]=x);
   const ids=new Set([...Object.keys(lM),...Object.keys(rM)]);
@@ -337,6 +343,7 @@ function mergeArrayById(base,local,remote){
   ids.forEach(id=>{
     const b=bM[id],l=lM[id],r=rM[id];
     if(l&&r){
+      if(noBaseline){out.push(r);return}
       const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);
       out.push(lCh?l:(rCh?r:l)); // local edit wins on a genuine conflict (it's the change in progress on this device)
     }else if(l&&!r){
@@ -350,21 +357,27 @@ function mergeArrayById(base,local,remote){
   return out;
 }
 function mergeMap(base,local,remote){
+  const noBaseline=!base;
   base=base||{};local=local||{};remote=remote||{};
   const keys=new Set([...Object.keys(local),...Object.keys(remote)]);
   const out={};
   keys.forEach(k=>{
     const b=base[k],l=local[k],r=remote[k];
-    if(l&&r){const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);out[k]=lCh?l:(rCh?r:l)}
+    if(l&&r){
+      if(noBaseline){out[k]=r;return}
+      const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);out[k]=lCh?l:(rCh?r:l);
+    }
     else out[k]=l||r;
   });
   return out;
 }
 function mergeSettings(base,local,remote){
+  const noBaseline=!base;
   base=base||{};local=local||{};remote=remote||{};
   const out={...remote,...local};
   ['ownerPin','adminPin','timezone'].forEach(k=>{
-    const lCh=!base||local[k]!==base[k],rCh=!base||remote[k]!==base[k];
+    if(noBaseline){if(remote[k]!=null)out[k]=remote[k];return}
+    const lCh=local[k]!==base[k],rCh=remote[k]!==base[k];
     out[k]=lCh?local[k]:(rCh?remote[k]:local[k]);
   });
   out.riders=mergeArrayById(base.riders,local.riders,remote.riders);
