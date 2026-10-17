@@ -43,7 +43,8 @@ textarea{resize:vertical}
 .sb-ok{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
 .sb-wait{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
 .sb-bad{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
-.hb{display:flex;gap:6px}
+.hb{display:flex;gap:6px;align-items:center}
+.sb-refresh{padding:4px 9px;min-height:0;font-size:1rem;line-height:1}
 
 /* buttons */
 .btn{border:0;border-radius:12px;padding:0 16px;min-height:44px;font-weight:700;background:var(--ink);color:var(--surface);display:inline-flex;align-items:center;justify-content:center;gap:8px}
@@ -275,7 +276,7 @@ function saveSyncedLocal(v){try{localStorage.setItem(SYNC_KEY,JSON.stringify(v))
 let S=loadLocal();
 let sVer=0;
 const API_ON=!!(API_URL&&API_URL.indexOf('__')!==0);
-const sync={status:API_ON?'connecting':'local',msg:''};
+const sync={status:API_ON?'connecting':'local',msg:'',lastOkAt:0};
 function persist(){saveLocal();schedulePush()}
 
 /* -- transport: some browsers block a plain cross-origin fetch() to an Apps
@@ -433,13 +434,13 @@ async function doPush(){
   pushing=true;sync.status='saving';render();
   try{
     const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
-    if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg=''}
+    if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg='';sync.lastOkAt=Date.now()}
     else if(j.conflict){
       pushFails=0;
       const remote=normalize(j.data);
       S=normalize(mergeState(lastSynced,S,remote));
       sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
-      sync.status='online';sync.msg='';
+      sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
       pushAgain=true; // re-send so our preserved edits land under the new version
     }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background';scheduleRetryPush()}
   }catch(e){sync.status='offline';sync.msg='No connection — saved on this device, retrying in background ['+(e&&e.message)+']';scheduleRetryPush()}
@@ -472,7 +473,7 @@ async function bootSync(){
       const remote=normalize(j.data);
       const merged=normalize(mergeState(lastSynced,S,remote));
       S=merged;sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
-      sync.status='online';sync.msg='';tryTokenLogin();
+      sync.status='online';sync.msg='';sync.lastOkAt=Date.now();tryTokenLogin();
       if(!deepEq(S,remote))schedulePush(); // we were holding local edits the sheet doesn't have yet — send them now
     }
     else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
@@ -480,6 +481,15 @@ async function bootSync(){
   render();
   if(pollTimer)clearInterval(pollTimer);
   pollTimer=setInterval(pollOnce,POLL_BASE_MS);
+}
+/* -- manual "Sync now": lets someone check against the shared sheet on the
+   spot, instead of wondering whether what's on screen is current or just
+   guessing. Reuses bootSync()'s own safe merge logic and resets any backoff
+   so it isn't blocked by a recent failure. -- */
+async function manualSync(){
+  if(!API_ON)return;
+  pollFails=0;pollBackoffUntil=0;
+  await bootSync();
 }
 /* -- poll cadence: back off while failing instead of hammering the Apps Script
    quota every few seconds during an actual outage, which only makes it worse
@@ -494,7 +504,7 @@ async function pollOnce(){
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
     if(j.ok){
       pollFails=0;pollBackoffUntil=0;
-      sync.status='online';sync.msg='';
+      sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
       if(j.version!==sVer){
         const remote=normalize(j.data);
         const merged=normalize(mergeState(lastSynced,S,remote));
@@ -633,10 +643,12 @@ function vSyncNote(){
   if(sync.status==='offline')return `<p class="err" role="alert">${esc(sync.msg||'Offline — using the last data saved on this device.')}</p>`;
   return '';
 }
+const fmtSyncTime=ts=>{try{return new Date(ts).toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'})}catch(e){return ''}};
 function vSyncBadge(){
   const map={connecting:['Connecting…','sb-wait'],online:['Synced','sb-ok'],saving:['Saving…','sb-wait'],offline:['Offline','sb-bad'],local:['Local only','sb-bad']};
   const hit=map[sync.status];if(!hit)return'';
-  return `<span class="sb ${hit[1]}" title="${esc(sync.msg||'')}">${esc(hit[0])}</span>`;
+  const label=hit[0]+(sync.lastOkAt?' · '+fmtSyncTime(sync.lastOkAt):'');
+  return `<span class="sb ${hit[1]}" title="${esc(sync.msg||'')}">${esc(label)}</span>${API_ON?`<button class="btn ghost sb-refresh" data-a="syncNow" aria-label="Sync now" title="Check the shared sheet right now">&#8635;</button>`:''}`;
 }
 function vLogin(){
   const r=ui.loginRole,rs=S.settings.riders;
@@ -1690,6 +1702,7 @@ function act(a,el,ev){
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
+  case 'syncNow':manualSync();return;
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
 
