@@ -409,8 +409,22 @@ function mergeState(base,local,remote){
 
 /* -- push local changes to the shared backend, debounced -- */
 let pushTimer=null,pushing=false,pushAgain=false;
+/* -- a failed/timed-out push used to just sit there until the next local
+   edit happened to call schedulePush() again — if the device stopped being
+   actively used right after a failed save (locked screen, backgrounded tab,
+   or simply no further edits), that save could be stuck unsent indefinitely
+   even once the connection came back. Retry it ourselves, with backoff. -- */
+let pushFails=0,pushRetryTimer=null;
+const PUSH_BASE_MS=2000;
+function scheduleRetryPush(){
+  pushFails++;
+  const delay=Math.min(30000,PUSH_BASE_MS*Math.pow(2,Math.min(pushFails,4)));
+  if(pushRetryTimer)clearTimeout(pushRetryTimer);
+  pushRetryTimer=setTimeout(doPush,delay);
+}
 function schedulePush(){
   if(!API_ON)return;
+  if(pushRetryTimer){clearTimeout(pushRetryTimer);pushRetryTimer=null}
   if(pushTimer)clearTimeout(pushTimer);
   pushTimer=setTimeout(doPush,500);
 }
@@ -419,15 +433,16 @@ async function doPush(){
   pushing=true;sync.status='saving';render();
   try{
     const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
-    if(j.ok){sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg=''}
+    if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg=''}
     else if(j.conflict){
+      pushFails=0;
       const remote=normalize(j.data);
       S=normalize(mergeState(lastSynced,S,remote));
       sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
       sync.status='online';sync.msg='';
       pushAgain=true; // re-send so our preserved edits land under the new version
-    }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background'}
-  }catch(e){sync.status='offline';sync.msg='No connection — saved on this device only ['+(e&&e.message)+']'}
+    }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background';scheduleRetryPush()}
+  }catch(e){sync.status='offline';sync.msg='No connection — saved on this device, retrying in background ['+(e&&e.message)+']';scheduleRetryPush()}
   pushing=false;
   if(pushAgain){pushAgain=false;doPush();return}
   render();
