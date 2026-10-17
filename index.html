@@ -262,6 +262,15 @@ function normalize(s){
 }
 function loadLocal(){try{return normalize(JSON.parse(localStorage.getItem(KEY)))}catch(e){return fresh()}}
 function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+/* -- the 3-way-merge baseline (lastSynced) also has to survive a page reload,
+   not just live in memory: without it, bootSync() has no way to tell "this
+   record is just stale on this device" apart from "this device has a genuine
+   unsynced edit", and defaults to treating every local copy as the one in
+   progress — which means a device that was ever offline/stale would keep
+   ignoring the Owner/Admin's later edits forever, even once back online. -- */
+const SYNC_KEY=KEY+'_lastSynced';
+function loadSyncedLocal(){try{const v=localStorage.getItem(SYNC_KEY);return v?JSON.parse(v):null}catch(e){return null}}
+function saveSyncedLocal(v){try{localStorage.setItem(SYNC_KEY,JSON.stringify(v))}catch(e){}}
 
 let S=loadLocal();
 let sVer=0;
@@ -317,7 +326,7 @@ function formPost(url,fields){
 
 /* -- three-way merge: keep local edits made since the last confirmed sync,
    instead of letting a refresh from the shared sheet silently wipe them out. -- */
-let lastSynced=null;
+let lastSynced=loadSyncedLocal();
 const clone=x=>JSON.parse(JSON.stringify(x));
 const deepEq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function mergeArrayById(base,local,remote){
@@ -397,11 +406,11 @@ async function doPush(){
   pushing=true;sync.status='saving';render();
   try{
     const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
-    if(j.ok){sVer=j.version;lastSynced=clone(S);sync.status='online';sync.msg=''}
+    if(j.ok){sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg=''}
     else if(j.conflict){
       const remote=normalize(j.data);
       S=normalize(mergeState(lastSynced,S,remote));
-      sVer=j.version;lastSynced=clone(remote);saveLocal();
+      sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
       sync.status='online';sync.msg='';
       pushAgain=true; // re-send so our preserved edits land under the new version
     }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background'}
@@ -434,7 +443,7 @@ async function bootSync(){
       // would silently erase it even though nothing was actually lost upstream.
       const remote=normalize(j.data);
       const merged=normalize(mergeState(lastSynced,S,remote));
-      S=merged;sVer=j.version;lastSynced=clone(remote);saveLocal();
+      S=merged;sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
       sync.status='online';sync.msg='';tryTokenLogin();
       if(!deepEq(S,remote))schedulePush(); // we were holding local edits the sheet doesn't have yet — send them now
     }
@@ -455,7 +464,7 @@ async function pollOnce(){
         const remote=normalize(j.data);
         const merged=normalize(mergeState(lastSynced,S,remote));
         const changed=!deepEq(merged,S);
-        S=merged;sVer=j.version;lastSynced=clone(remote);saveLocal();
+        S=merged;sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
         if(changed)render();
         if(!deepEq(S,remote))schedulePush(); // we're holding local edits the sheet doesn't have yet — send them
       }
