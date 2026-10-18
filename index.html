@@ -529,13 +529,27 @@ function countState(d){
   return {bookings:(d.bookings||[]).length,transactions:(d.transactions||[]).length,
     txActive:(d.transactions||[]).filter(t=>t.status!=='disreg').length};
 }
+/* -- which specific transactions exist on one side but not the other, by id
+   — so a mismatch shows exactly which records are stuck instead of just a
+   count, and whether this device even has an unsent save queued up right
+   now (as opposed to a push that already failed and gave up). -- */
+function txDiffLists(localD,remoteD){
+  const lm=new Map((localD.transactions||[]).map(t=>[t.id,t]));
+  const rm=new Map((remoteD.transactions||[]).map(t=>[t.id,t]));
+  const localOnly=[...lm.values()].filter(t=>!rm.has(t.id)).map(t=>`${t.date} · ${t.customer} · ₱${(t.r&&t.r.total)||0}`);
+  const remoteOnly=[...rm.values()].filter(t=>!lm.has(t.id)).map(t=>`${t.date} · ${t.customer} · ₱${(t.r&&t.r.total)||0}`);
+  return {localOnly,remoteOnly};
+}
 async function checkLiveData(){
   ui.diag={loading:true,error:'',remote:null,local:countState(S),checkedAt:0};render();
   if(!API_ON){ui.diag={loading:false,error:'Not connected.',remote:null,local:countState(S),checkedAt:0};render();return}
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
     if(j.ok){
-      ui.diag={loading:false,error:'',remote:countState(normalize(j.data)),local:countState(S),checkedAt:Date.now(),remoteVersion:j.version,localVersion:sVer};
+      const remoteNorm=normalize(j.data);
+      ui.diag={loading:false,error:'',remote:countState(remoteNorm),local:countState(S),checkedAt:Date.now(),remoteVersion:j.version,localVersion:sVer,
+        diffs:txDiffLists(S,remoteNorm),
+        live:{status:sync.status,msg:sync.msg,pushing,pushPending:!!pushTimer,retryPending:!!pushRetryTimer}};
     }else{
       ui.diag={loading:false,error:j.error||'Could not reach the shared sheet',remote:null,local:countState(S),checkedAt:0};
     }
@@ -595,6 +609,14 @@ async function forcePushLocal(){
   // Resume the normal background sync now that this save has fully landed
   // (or given up), instead of leaving the device polling-silent forever.
   pollTimer=setInterval(pollOnce,POLL_BASE_MS);
+  // BUG FIXED HERE: on failure, this device's edits are still unsent (S still
+  // differs from lastSynced/the sheet) — but nothing would ever try again on
+  // its own, because the retry timers this function paused at the top were
+  // cleared, not rescheduled. A device stuck failing here would sit forever
+  // believing it had nothing left to push, no matter how many times someone
+  // tapped the button again (each retry wiped out the previous attempt's
+  // retry timer the same way). Re-arm the normal retry/backoff explicitly.
+  if(!ok&&!deepEq(S,lastSynced))scheduleRetryPush();
 }
 /* -- poll cadence: back off while failing instead of hammering the Apps Script
    quota every few seconds during an actual outage, which only makes it worse
@@ -617,6 +639,13 @@ async function pollOnce(){
         S=merged;sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
         if(changed)render();
         if(!deepEq(S,remote))schedulePush(); // we're holding local edits the sheet doesn't have yet — send them
+      }else if(!pushTimer&&!pushRetryTimer&&!deepEq(S,lastSynced)){
+        // Safety net: the sheet hasn't moved since we last checked, but this
+        // device is still holding local edits that were never actually sent
+        // (e.g. a save attempt failed somewhere without rescheduling itself).
+        // Without this, such edits could sit unsent forever with nothing left
+        // to ever notice and retry them.
+        schedulePush();
       }
     }else{
       pollFails++;pollBackoffUntil=Date.now()+Math.min(60000,POLL_BASE_MS*Math.pow(2,Math.min(pollFails,4)));
@@ -1439,13 +1468,19 @@ function vDiag(){
   if(d.error)return`<p class="err" role="alert">${esc(d.error)}</p>`;
   if(!d.remote)return'';
   const row=(label,a,b)=>`<tr><td>${esc(label)}</td><td class="num">${a}</td><td class="num">${b}</td><td class="num">${a===b?'✓ match':'⚠ DIFFERENT'}</td></tr>`;
+  const diffBlock=(label,list)=>!list||!list.length?'':`<p class="hint" style="margin-bottom:0"><strong>${esc(label)} (${list.length}):</strong></p><ul style="margin:4px 0 10px;padding-left:18px">${list.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+  const live=d.live;
+  const liveLine=live?`<p class="hint">Right now: status <strong>${esc(live.status)}</strong>${live.msg?' — '+esc(live.msg):''}${live.pushing?' · a save is actively in flight':''}${!live.pushing&&live.pushPending?' · a save is queued to go out shortly':''}${!live.pushing&&live.retryPending?' · a failed save is waiting to retry':''}</p>`:'';
   return `<div class="dtable" style="margin-top:10px"><table><thead><tr><th></th><th>This device</th><th>Shared sheet</th><th>&nbsp;</th></tr></thead>
   <tbody>
   ${row('Bookings',d.local.bookings,d.remote.bookings)}
   ${row('Transactions (all)',d.local.transactions,d.remote.transactions)}
   ${row('Transactions (active)',d.local.txActive,d.remote.txActive)}
   </tbody></table></div>
-  <p class="hint">Checked ${fmtSyncTime(d.checkedAt)} &middot; this device's save version: ${d.localVersion} &middot; sheet's save version: ${d.remoteVersion}${d.localVersion!==d.remoteVersion?' (different — this device has not picked up the latest save yet)':' (same)'}</p>`;
+  <p class="hint">Checked ${fmtSyncTime(d.checkedAt)} &middot; this device's save version: ${d.localVersion} &middot; sheet's save version: ${d.remoteVersion}${d.localVersion!==d.remoteVersion?' (different — this device has not picked up the latest save yet)':' (same)'}</p>
+  ${liveLine}
+  ${d.diffs?diffBlock('On this device but not on the shared sheet',d.diffs.localOnly):''}
+  ${d.diffs?diffBlock('On the shared sheet but not on this device',d.diffs.remoteOnly):''}`;
 }
 
 /* modal */
