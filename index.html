@@ -491,6 +491,30 @@ async function manualSync(){
   pollFails=0;pollBackoffUntil=0;
   await bootSync();
 }
+/* -- "Check the shared sheet" diagnostic: fetches the raw remote state
+   straight from the server, WITHOUT merging it into S, so it can be shown
+   side-by-side with what's on this device right now. This answers the
+   question "is the sheet itself short, or is this device just not picking
+   up what's already there?" directly, instead of guessing from screenshots
+   of two different devices taken minutes apart. -- */
+function countState(d){
+  if(!d)return null;
+  return {bookings:(d.bookings||[]).length,transactions:(d.transactions||[]).length,
+    txActive:(d.transactions||[]).filter(t=>t.status!=='disreg').length};
+}
+async function checkLiveData(){
+  ui.diag={loading:true,error:'',remote:null,local:countState(S),checkedAt:0};render();
+  if(!API_ON){ui.diag={loading:false,error:'Not connected.',remote:null,local:countState(S),checkedAt:0};render();return}
+  try{
+    const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
+    if(j.ok){
+      ui.diag={loading:false,error:'',remote:countState(normalize(j.data)),local:countState(S),checkedAt:Date.now(),remoteVersion:j.version,localVersion:sVer};
+    }else{
+      ui.diag={loading:false,error:j.error||'Could not reach the shared sheet',remote:null,local:countState(S),checkedAt:0};
+    }
+  }catch(e){ui.diag={loading:false,error:(e&&e.message)||'No connection',remote:null,local:countState(S),checkedAt:0}}
+  render();
+}
 /* -- "Make this device the source of truth": an explicit, owner-triggered
    override for when a device's saved data never reached the shared sheet
    (e.g. it was running stale cached code) and the normal merge can't help
@@ -572,7 +596,8 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   report:{from:today(),to:today()},
   pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
-  flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}}};
+  flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
+  diag:null};
 const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
   cash:{type:'in',amt:'',mode:'pct',val:''},bills:[],billAmt:'',billPct:'1.5',bErr:'',fee:'120',disc:'0',hop:'0',wait:'0',other:'',otherNote:'',
   bookingId:null,result:null,mop:'online',account:'keem',received:'',splitCash:'',splitOnline:'',status:'nyp',msg:'',savedId:null});
@@ -1349,9 +1374,28 @@ function vSettings(){
   <div class="grid2"><label class="f">Rider name<input id="rName" type="text" autocomplete="off"></label><label class="f">Rider PIN<input id="rPin" type="text" inputmode="numeric" autocomplete="off"></label></div>
   <p class="err" id="sErr" role="alert"></p>
   <button class="btn green" data-a="addRider">Add rider</button></section>
-  ${API_ON?`<section class="card"><h2>Fix a device out of sync</h2>
+  ${API_ON?`<section class="card"><h2>Sync diagnostics</h2>
+  <p class="hint">Shows exactly what's saved on <strong>this device</strong> right now next to what's actually on the shared sheet, straight from the server — no guessing from two different screens. Use this first if devices look out of sync.</p>
+  <button class="btn ghost" data-a="checkLive">Check the shared sheet now</button>
+  ${vDiag()}
+  </section>
+  <section class="card"><h2>Fix a device out of sync</h2>
   <p class="hint">If another device (Admin's, a rider's, or your own on a different phone) is showing old or missing data while <strong>this</strong> device has the correct, up-to-date numbers, use this to push this device's data out to everyone — overwriting the shared copy. Only do this after reopening the link here (not an old tab) so you know this device is current.</p>
   <button class="btn red" data-a="forceSyncAsk">Make this device the source of truth</button></section>`:''}`;
+}
+function vDiag(){
+  const d=ui.diag;if(!d)return'';
+  if(d.loading)return'<p class="hint">Checking…</p>';
+  if(d.error)return`<p class="err" role="alert">${esc(d.error)}</p>`;
+  if(!d.remote)return'';
+  const row=(label,a,b)=>`<tr><td>${esc(label)}</td><td class="num">${a}</td><td class="num">${b}</td><td class="num">${a===b?'✓ match':'⚠ DIFFERENT'}</td></tr>`;
+  return `<div class="dtable" style="margin-top:10px"><table><thead><tr><th></th><th>This device</th><th>Shared sheet</th><th>&nbsp;</th></tr></thead>
+  <tbody>
+  ${row('Bookings',d.local.bookings,d.remote.bookings)}
+  ${row('Transactions (all)',d.local.transactions,d.remote.transactions)}
+  ${row('Transactions (active)',d.local.txActive,d.remote.txActive)}
+  </tbody></table></div>
+  <p class="hint">Checked ${fmtSyncTime(d.checkedAt)} &middot; this device's save version: ${d.localVersion} &middot; sheet's save version: ${d.remoteVersion}${d.localVersion!==d.remoteVersion?' (different — this device has not picked up the latest save yet)':' (same)'}</p>`;
 }
 
 /* modal */
@@ -1742,6 +1786,7 @@ function act(a,el,ev){
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
   case 'syncNow':manualSync();return;
+  case 'checkLive':if(me.role!=='owner')return;checkLiveData();return;
   case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
   case 'doForceSync':if(me.role!=='owner')return;closeModal();forcePushLocal();return;
   case 'csv':exportCsv();return;
