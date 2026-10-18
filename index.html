@@ -503,7 +503,7 @@ async function doPush(){
       sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
       sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
       pushAgain=true; // re-send so our preserved edits land under the new version
-    }else{sync.status='offline';sync.msg=j.error||'Save failed — retrying in background';scheduleRetryPush()}
+    }else{sync.status='offline';sync.msg=j.message||j.error||'Save failed — retrying in background';scheduleRetryPush()}
   }catch(e){sync.status='offline';sync.msg='No connection — saved on this device, retrying in background ['+(e&&e.message)+']';scheduleRetryPush()}
   pushing=false;
   if(pushAgain){pushAgain=false;doPush();return}
@@ -673,7 +673,7 @@ async function forcePushLocal(){
         break;
       }
       if(j.conflict){continue} // someone else saved in between — retry with the newer version
-      lastErr=j.error||'Save failed';
+      lastErr=j.message||j.error||'Save failed';
     }catch(e){lastErr=(e&&e.message)||'No connection'}
   }
   if(!ok){

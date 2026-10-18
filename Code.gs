@@ -139,6 +139,15 @@ function doPost(e) {
     : jsonOut_;
 
   if ((body.key || '') !== SECRET) return respond({ ok: false, error: 'unauthorized' });
+  // Every up-to-date copy of the app always identifies itself on a save
+  // (the "writer" field). A copy old enough to predate that can silently
+  // undo someone else's correct save with its own stale data and no one
+  // would ever see which device did it — refusing it outright, instead of
+  // writing it, forces that device to actually refresh before it can touch
+  // the shared sheet again.
+  if (!body.writer) {
+    return respond({ ok: false, error: 'stale_client', message: 'This device is running an outdated copy of the app and was blocked from saving. Please fully close and reopen it to get the latest version.' });
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
