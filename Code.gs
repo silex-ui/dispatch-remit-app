@@ -138,7 +138,18 @@ function doPost(e) {
     ? (obj) => postMessageOut_(reqId, obj)
     : jsonOut_;
 
-  if ((body.key || '') !== SECRET) return respond({ ok: false, error: 'unauthorized' });
+  // TEMPORARY DIAGNOSTIC LOGGING — every incoming write leaves a trail in
+  // Apps Script's own Executions log (left sidebar), independent of anything
+  // the client claims happened. This is how we find out, with certainty,
+  // whether an unidentified/stale device is still reaching this script.
+  const ua = (e.parameter && e.parameter.ua) || (e.headers && e.headers['User-Agent']) || '';
+  Logger.log('doPost IN writer=[%s] expectedVersion=%s dataLen=%s ua=[%s]',
+    body.writer, body.expectedVersion, (body.data ? JSON.stringify(body.data).length : 0), ua);
+
+  if ((body.key || '') !== SECRET) {
+    Logger.log('doPost REJECT unauthorized');
+    return respond({ ok: false, error: 'unauthorized' });
+  }
   // Every up-to-date copy of the app always identifies itself on a save
   // (the "writer" field). A copy old enough to predate that can silently
   // undo someone else's correct save with its own stale data and no one
@@ -146,6 +157,7 @@ function doPost(e) {
   // writing it, forces that device to actually refresh before it can touch
   // the shared sheet again.
   if (!body.writer) {
+    Logger.log('doPost REJECT stale_client (no writer field sent)');
     return respond({ ok: false, error: 'stale_client', message: 'This device is running an outdated copy of the app and was blocked from saving. Please fully close and reopen it to get the latest version.' });
   }
   const lock = LockService.getScriptLock();
@@ -153,10 +165,12 @@ function doPost(e) {
   try {
     const current = readState_();
     if (Number(body.expectedVersion) !== Number(current.version)) {
+      Logger.log('doPost REJECT conflict: client expected %s, sheet is at %s', body.expectedVersion, current.version);
       return respond({ ok: false, conflict: true, version: current.version, data: current.data });
     }
     const newVersion = current.version + 1;
     writeState_(newVersion, body.data, body.writer || '');
+    Logger.log('doPost OK writer=[%s] newVersion=%s', body.writer, newVersion);
     return respond({ ok: true, version: newVersion });
   } finally {
     lock.releaseLock();
