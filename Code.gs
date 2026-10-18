@@ -27,36 +27,98 @@
  * HTML form POST, both read back via postMessage — not a normal fetch() —
  * because some browsers block a direct cross-origin fetch to Apps Script's
  * web app URLs. This file supports both styles.
+ *
+ * ROOT CAUSE FOUND 2026-10-18: a single Google Sheets cell can hold at most
+ * 50,000 characters. The whole app's data (bookings + transactions + ledger
+ * etc.) was being JSON-stringified into ONE cell — and once the real data
+ * grew past that limit, every write containing the full, current dataset
+ * started throwing an uncaught exception server-side ("Your input contains
+ * more than the maximum of 50000 characters in a single cell"). Because the
+ * exception happened before any response was ever sent back, the client's
+ * formPost() just sat waiting until its own timeout fired — showing as a
+ * generic "offline"/timeout on the device, with nothing in the UI pointing
+ * at the real cause. Meanwhill, any write whose data happened to still be
+ * under the limit (e.g. an older/smaller snapshot) could still succeed,
+ * which is why the sheet kept settling back onto an incomplete copy no
+ * matter how many times a full push was retried.
+ *
+ * FIX: the JSON is now split across several cells ("chunks") instead of one,
+ * well under the 50,000-character limit each, and rejoined on read. See
+ * writeChunks_ / readChunks_ below. migrateIfNeeded_ converts an existing
+ * sheet from the old one-cell layout to this one automatically and safely,
+ * the first time this code runs against it — no data is lost in the move.
  */
 
 const SHEET_NAME = 'State';
 const SECRET = 'bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
+// Stay well under Google Sheets' real 50,000-character-per-cell ceiling.
+const CHUNK_SIZE = 40000;
 
+/** New layout, row 2 = the one and only state row:
+ *   A version | B updatedAt | C writer | D chunk count | E.. the JSON, split
+ *   into CHUNK_SIZE-character pieces, one piece per cell. */
 function getSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
-    sh.getRange(1, 1, 1, 4).setValues([['version', 'data', 'updatedAt', 'writer']]);
+    sh.getRange(1, 1, 1, 4).setValues([['version', 'updatedAt', 'writer', 'chunks']]);
     const seed = {
       settings: { ownerPin: '1903', adminPin: '1234', riders: [] },
       bookings: [], transactions: [], ledger: [], riderDays: {}
     };
-    sh.getRange(2, 1, 1, 4).setValues([[1, JSON.stringify(seed), new Date().toISOString(), '']]);
+    writeChunks_(sh, 1, JSON.stringify(seed), '', new Date().toISOString());
+    return sh;
   }
-  // Older sheets created before the "writer" column existed won't have a
-  // header for it yet — add it so writeState_ always has somewhere to put it.
-  if (sh.getLastColumn() < 4) sh.getRange(1, 4).setValue('writer');
+  migrateIfNeeded_(sh);
   return sh;
 }
 
-function readState_() {
-  const sh = getSheet_();
+/** A sheet built by the OLD code has the full JSON sitting in B2 (a string
+ * starting with "{"). The new layout's B2 is always a timestamp instead —
+ * that difference is how we tell old and new apart and convert safely,
+ * without needing a separate "have we migrated yet" flag anywhere. */
+function migrateIfNeeded_(sh) {
+  const b2 = sh.getRange(2, 2).getValue();
+  const looksOld = typeof b2 === 'string' && b2.trim().charAt(0) === '{';
+  if (!looksOld) return;
+  const oldVersion = sh.getRange(2, 1).getValue();
+  const oldDataStr = String(b2);
+  const oldUpdatedAtCell = sh.getRange(2, 3).getValue();
+  const oldUpdatedAt = oldUpdatedAtCell instanceof Date
+    ? oldUpdatedAtCell.toISOString()
+    : String(oldUpdatedAtCell || new Date().toISOString());
+  const oldWriter = sh.getRange(2, 4).getValue() || '';
+  sh.getRange(1, 1, 1, 4).setValues([['version', 'updatedAt', 'writer', 'chunks']]);
+  writeChunks_(sh, oldVersion, oldDataStr, oldWriter, oldUpdatedAt);
+}
+
+function writeChunks_(sh, version, jsonStr, writer, updatedAt) {
+  const chunks = [];
+  for (let i = 0; i < jsonStr.length; i += CHUNK_SIZE) chunks.push(jsonStr.slice(i, i + CHUNK_SIZE));
+  if (chunks.length === 0) chunks.push('');
+  // Clear out any leftover chunk cells from a previous, longer write so old
+  // data never lingers past the end of the new (possibly shorter) one.
+  const prevCount = Number(sh.getRange(2, 4).getValue()) || 0;
+  const clearCount = Math.max(prevCount, chunks.length);
+  if (clearCount > 0) sh.getRange(2, 5, 1, clearCount).clearContent();
+  sh.getRange(2, 1, 1, 4).setValues([[version, updatedAt, writer || '', chunks.length]]);
+  sh.getRange(2, 5, 1, chunks.length).setValues([chunks]);
+}
+
+function readChunks_(sh) {
   const version = sh.getRange(2, 1).getValue();
-  const data = JSON.parse(sh.getRange(2, 2).getValue());
-  const updatedAt = sh.getRange(2, 3).getValue();
-  const writer = sh.getRange(2, 4).getValue() || '';
-  return { version, data, updatedAt, writer };
+  const updatedAtCell = sh.getRange(2, 2).getValue();
+  const updatedAt = updatedAtCell instanceof Date ? updatedAtCell.toISOString() : updatedAtCell;
+  const writer = sh.getRange(2, 3).getValue() || '';
+  const count = Number(sh.getRange(2, 4).getValue()) || 0;
+  let jsonStr = '';
+  if (count > 0) jsonStr = sh.getRange(2, 5, 1, count).getValues()[0].join('');
+  return { version, data: JSON.parse(jsonStr || '{}'), updatedAt, writer };
+}
+
+function readState_() {
+  return readChunks_(getSheet_());
 }
 
 /** Identifies which device/browser sent a write, so two devices racing each
@@ -65,7 +127,7 @@ function readState_() {
  * when it came from a device holding stale/incomplete data. */
 function writeState_(version, data, writer) {
   const sh = getSheet_();
-  sh.getRange(2, 1, 1, 4).setValues([[version, JSON.stringify(data), new Date().toISOString(), writer || '']]);
+  writeChunks_(sh, version, JSON.stringify(data), writer, new Date().toISOString());
 }
 
 function jsonOut_(obj) {
@@ -106,6 +168,9 @@ function doGet(e) {
     const { version, data, updatedAt, writer } = readState_();
     const out = { ok: true, version, data, updatedAt, writer };
     return callback ? jsonpOut_(callback, out) : jsonOut_(out);
+  } catch (err) {
+    const out = { ok: false, error: 'server_error', message: String(err && err.message || err) };
+    return callback ? jsonpOut_(callback, out) : jsonOut_(out);
   } finally {
     lock.releaseLock();
   }
@@ -138,13 +203,8 @@ function doPost(e) {
     ? (obj) => postMessageOut_(reqId, obj)
     : jsonOut_;
 
-  // TEMPORARY DIAGNOSTIC LOGGING — every incoming write leaves a trail in
-  // Apps Script's own Executions log (left sidebar), independent of anything
-  // the client claims happened. This is how we find out, with certainty,
-  // whether an unidentified/stale device is still reaching this script.
-  const ua = (e.parameter && e.parameter.ua) || (e.headers && e.headers['User-Agent']) || '';
-  Logger.log('doPost IN writer=[%s] expectedVersion=%s dataLen=%s ua=[%s]',
-    body.writer, body.expectedVersion, (body.data ? JSON.stringify(body.data).length : 0), ua);
+  Logger.log('doPost IN writer=[%s] expectedVersion=%s dataLen=%s',
+    body.writer, body.expectedVersion, (body.data ? JSON.stringify(body.data).length : 0));
 
   if ((body.key || '') !== SECRET) {
     Logger.log('doPost REJECT unauthorized');
@@ -172,6 +232,12 @@ function doPost(e) {
     writeState_(newVersion, body.data, body.writer || '');
     Logger.log('doPost OK writer=[%s] newVersion=%s', body.writer, newVersion);
     return respond({ ok: true, version: newVersion });
+  } catch (err) {
+    // Whatever goes wrong here, always send SOMETHING back — an uncaught
+    // exception used to mean the client's save request just hung until its
+    // own timeout, with no clue anywhere about what actually happened.
+    Logger.log('doPost ERROR %s', String(err && err.message || err));
+    return respond({ ok: false, error: 'server_error', message: String(err && err.message || err) });
   } finally {
     lock.releaseLock();
   }
