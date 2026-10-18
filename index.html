@@ -309,7 +309,7 @@ function jsonpGet(url){
     const cb='__dcb_'+(jsonpSeq++)+'_'+Date.now();
     const script=document.createElement('script');
     let done=false;
-    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},12000);
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},25000);
     function cleanup(){clearTimeout(timer);try{delete window[cb]}catch(e){window[cb]=undefined}if(script.parentNode)script.parentNode.removeChild(script)}
     window[cb]=(data)=>{if(done)return;done=true;cleanup();resolve(data)};
     script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('script_error'))};
@@ -331,7 +331,7 @@ function formPost(url,fields){
     Object.keys(all).forEach(k=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=all[k];form.appendChild(inp)});
     document.body.appendChild(form);
     let done=false;
-    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},15000);
+    const timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('timeout'))},25000);
     function onMsg(ev){
       if(!ev.data||typeof ev.data!=='object'||ev.data.reqId!==reqId)return;
       if(done)return;done=true;cleanup();resolve(ev.data);
@@ -1558,6 +1558,7 @@ function vDiag(){
   </tbody></table></div>
   <p class="hint">Checked ${fmtSyncTime(d.checkedAt)} &middot; this device's save version: ${d.localVersion} &middot; sheet's save version: ${d.remoteVersion}${d.localVersion!==d.remoteVersion?' (different — this device has not picked up the latest save yet)':' (same)'}</p>
   <p class="hint">This device's name: <strong>${esc(DEVICE_TAG)}</strong> &middot; the shared sheet's current data was last saved by: <strong>${esc(d.lastWriter)}</strong>${d.lastWriterIsMe?' (this device)':' (a different device)'}${d.remoteUpdatedAt?' at '+esc(new Date(d.remoteUpdatedAt).toLocaleTimeString()):''}</p>
+  <p class="hint">Syncing right now, as this device sees it: <strong>${S.settings.syncLocked?'PAUSED (only "Make this device the source of truth" can save)':'Active (normal background saving)'}</strong></p>
   ${liveLine}
   ${d.diffs?diffBlock('On this device but not on the shared sheet',d.diffs.localOnly):''}
   ${d.diffs?diffBlock('On the shared sheet but not on this device',d.diffs.remoteOnly):''}`;

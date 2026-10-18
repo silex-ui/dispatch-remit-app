@@ -101,7 +101,7 @@ function doGet(e) {
     return callback ? jsonpOut_(callback, err) : jsonOut_(err);
   }
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(15000);
   try {
     const { version, data, updatedAt, writer } = readState_();
     const out = { ok: true, version, data, updatedAt, writer };
@@ -140,7 +140,7 @@ function doPost(e) {
 
   if ((body.key || '') !== SECRET) return respond({ ok: false, error: 'unauthorized' });
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(15000);
   try {
     const current = readState_();
     if (Number(body.expectedVersion) !== Number(current.version)) {
