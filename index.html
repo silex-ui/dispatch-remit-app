@@ -329,7 +329,34 @@ function formPost(url,fields){
    instead of letting a refresh from the shared sheet silently wipe them out. -- */
 let lastSynced=loadSyncedLocal();
 const clone=x=>JSON.parse(JSON.stringify(x));
-const deepEq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+/* -- a text-based (JSON.stringify) equality check is order-sensitive: the
+   exact same record with its fields in a different order compares as
+   "changed" even though nothing about it actually changed. That happens
+   naturally here, because normalize() backfills a missing field (e.g. an
+   older transaction saved before "notes" or "tip" existed) by appending it
+   as a new trailing key — reordering that record relative to its own
+   earlier self. The result: every sync cycle treats such records as
+   freshly edited forever, triggering a needless push, which looks to the
+   other device like a real conflict, which triggers its own push back —
+   an endless, pointless tug-of-war that never lets the save version settle
+   even when nothing is actually different. A real recursive compare (keys
+   in any order, undefined treated as absent same as JSON does) fixes it. -- */
+function deepEq(a,b){
+  if(a===b)return true;
+  if(a==null||b==null)return a===b;
+  if(typeof a!==typeof b)return false;
+  if(typeof a!=='object')return a===b;
+  if(Array.isArray(a)!==Array.isArray(b))return false;
+  if(Array.isArray(a)){
+    if(a.length!==b.length)return false;
+    for(let i=0;i<a.length;i++)if(!deepEq(a[i],b[i]))return false;
+    return true;
+  }
+  const ak=Object.keys(a).filter(k=>a[k]!==undefined),bk=Object.keys(b).filter(k=>b[k]!==undefined);
+  if(ak.length!==bk.length)return false;
+  for(const k of ak){if(!Object.prototype.hasOwnProperty.call(b,k)||!deepEq(a[k],b[k]))return false}
+  return true;
+}
 function mergeArrayById(base,local,remote){
   // No baseline at all (this device has never completed a sync, including a
   // device that had stale data cached from before baselines were persisted)
