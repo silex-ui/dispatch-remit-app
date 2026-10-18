@@ -250,7 +250,7 @@ const KEY='delivery_dispatch_remit_v1';
    Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
 const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
 const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
-const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila'},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[]});
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[]});
 function normalize(s){
   if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
@@ -259,6 +259,7 @@ function normalize(s){
   s.flags=s.flags||[];
   (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0;if(!r.token)r.token=genToken()});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
+  if(s.settings.syncLocked==null)s.settings.syncLocked=false;
   return s;
 }
 function loadLocal(){try{return normalize(JSON.parse(localStorage.getItem(KEY)))}catch(e){return fresh()}}
@@ -422,7 +423,12 @@ function mergeSettings(base,local,remote){
   const noBaseline=!base;
   base=base||{};local=local||{};remote=remote||{};
   const out={...remote,...local};
-  ['ownerPin','adminPin','timezone'].forEach(k=>{
+  // syncLocked MUST use real "did either side actually change this since
+  // the last sync" logic, not the simple local-always-wins default below —
+  // otherwise another device's merely-stale cached copy of this flag would
+  // silently override a lock the owner just turned on the moment that
+  // device's next poll merges it in, defeating the whole point of it.
+  ['ownerPin','adminPin','timezone','syncLocked'].forEach(k=>{
     if(noBaseline){if(remote[k]!=null)out[k]=remote[k];return}
     const lCh=local[k]!==base[k],rCh=remote[k]!==base[k];
     out[k]=lCh?local[k]:(rCh?remote[k]:local[k]);
@@ -476,6 +482,15 @@ function schedulePush(){
   pushTimer=setTimeout(doPush,500);
 }
 async function doPush(){
+  // Owner-controlled freeze: while on, every device's ordinary background
+  // save is a deliberate no-op — nothing goes out, from anyone, with no
+  // cooperation needed from other people or devices. Only the owner's
+  // explicit "Make this device the source of truth" push (forcePushLocal)
+  // is allowed to write while this is on, so a mismatch can be corrected
+  // without something else's save racing in behind it. Local edits made
+  // while paused are never lost — they stay on this device and flush out
+  // automatically once the owner turns syncing back on.
+  if(S.settings.syncLocked){sync.status='paused';sync.msg='';render();return}
   if(pushing){pushAgain=true;return}
   pushing=true;sync.status='saving';render();
   try{
@@ -595,6 +610,46 @@ async function checkLiveData(){
    flag the normal push loop checks, and pausing the poll timer for the
    duration, makes this a true single save with nothing else allowed to
    write in the middle of it. -- */
+/* -- Owner-controlled sync freeze: lets the owner stop every OTHER device
+   from sending any changes out, without needing anyone else to close an
+   app or cooperate. The flag lives in S.settings (so it reaches every
+   device through the normal sync mechanism) and doPush() refuses to push
+   anything at all while it's on — see the comment there.
+
+   Turning it on or off is itself handled specially, outside doPush(): if it
+   went through the normal push path, turning it ON would immediately block
+   that very push from reaching anyone (since by the time it's sent,
+   syncLocked is already true locally), trapping the change on this device
+   forever. This always merges with the latest remote state first, then
+   forces syncLocked to the value just chosen (this device's intent always
+   wins for this one flag, even if something else changed in between), and
+   retries a few times against conflicts — same spirit as forcePushLocal,
+   but merging instead of overwriting, since this isn't a "fix a stale
+   device" action. -- */
+async function setSyncLock(val){
+  S.settings.syncLocked=val;saveLocal();render();
+  if(!API_ON)return;
+  try{
+    for(let attempt=0;attempt<5;attempt++){
+      const g=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
+      if(!(g&&g.ok))break;
+      const remote=normalize(g.data);
+      const merged=normalize(mergeState(lastSynced,S,remote));
+      merged.settings.syncLocked=val;
+      const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(g.version),data:JSON.stringify(merged),writer:DEVICE_TAG});
+      if(j.ok){
+        S=merged;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);saveLocal();
+        sync.status=val?'paused':'online';sync.msg='';sync.lastOkAt=Date.now();
+        toast(val?'Syncing paused — other devices will stop sending changes shortly.':'Syncing resumed for everyone.');
+        render();return;
+      }
+      if(j.conflict)continue;
+      break;
+    }
+  }catch(e){}
+  toast('Could not reach the shared sheet to change this — check your connection and try again.');
+  render();
+}
 async function forcePushLocal(){
   if(!API_ON){toast('Not connected — nothing to push.');return}
   if(pushing){toast('A save is already in progress — try again in a moment.');return}
@@ -800,7 +855,7 @@ function vSyncNote(){
 }
 const fmtSyncTime=ts=>{try{return new Date(ts).toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'})}catch(e){return ''}};
 function vSyncBadge(){
-  const map={connecting:['Connecting…','sb-wait'],online:['Synced','sb-ok'],saving:['Saving…','sb-wait'],offline:['Offline','sb-bad'],local:['Local only','sb-bad']};
+  const map={connecting:['Connecting…','sb-wait'],online:['Synced','sb-ok'],saving:['Saving…','sb-wait'],offline:['Offline','sb-bad'],local:['Local only','sb-bad'],paused:['Sync paused','sb-wait']};
   const hit=map[sync.status];if(!hit)return'';
   const label=hit[0]+(sync.lastOkAt?' · '+fmtSyncTime(sync.lastOkAt):'');
   return `<span class="sb ${hit[1]}" title="${esc(sync.msg||'')}">${esc(label)}</span>${API_ON?`<button class="btn ghost sb-refresh" data-a="syncNow" aria-label="Sync now" title="Check the shared sheet right now">&#8635;</button>`:''}`;
@@ -825,8 +880,9 @@ function vShell(){
   else if(view==='report')body=me.role==='owner'?vReport():vDash();
   else if(view==='flags')body=(me.role==='owner'||me.role==='admin')?vFlags():vDash();
   else if(view==='settings')body=vSettings();
+  const lockBanner=S.settings.syncLocked?`<p class="err" role="alert" style="margin:0 0 10px">⏸ Syncing is paused by the Owner while fixing a device mismatch. Anything you do here still saves on this device and will go out automatically once syncing resumes — nothing is lost.</p>`:'';
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
-  <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${body}`;
+  <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${body}`;
 }
 
 function vDash(){
@@ -1473,13 +1529,16 @@ function vSettings(){
   <div class="grid2"><label class="f">Rider name<input id="rName" type="text" autocomplete="off"></label><label class="f">Rider PIN<input id="rPin" type="text" inputmode="numeric" autocomplete="off"></label></div>
   <p class="err" id="sErr" role="alert"></p>
   <button class="btn green" data-a="addRider">Add rider</button></section>
-  ${API_ON?`<section class="card"><h2>Sync diagnostics</h2>
+  ${API_ON?`<section class="card"><h2>Pause syncing</h2>
+  <p class="hint">${S.settings.syncLocked?'Syncing is currently paused. Every other device (Admin, riders, or your own on another phone) will stop sending changes out on its own — nothing to ask anyone else to do. What they do stays saved on their own device and sends automatically once you resume. Use this while you fix a mismatch below, then turn it back on.':'Turns off background saving for every device except this one, without needing anyone else to close anything. Use this first, before fixing a mismatch below, so nothing can save over your correction while you work.'}</p>
+  <button class="btn ${S.settings.syncLocked?'green':'red'}" data-a="toggleSyncLock">${S.settings.syncLocked?'Resume syncing for everyone':'Pause syncing for other devices'}</button></section>
+  <section class="card"><h2>Sync diagnostics</h2>
   <p class="hint">Shows exactly what's saved on <strong>this device</strong> right now next to what's actually on the shared sheet, straight from the server — no guessing from two different screens. Use this first if devices look out of sync.</p>
   <button class="btn ghost" data-a="checkLive">Check the shared sheet now</button>
   ${vDiag()}
   </section>
   <section class="card"><h2>Fix a device out of sync</h2>
-  <p class="hint">If another device (Admin's, a rider's, or your own on a different phone) is showing old or missing data while <strong>this</strong> device has the correct, up-to-date numbers, use this to push this device's data out to everyone — overwriting the shared copy. Only do this after reopening the link here (not an old tab) so you know this device is current.</p>
+  <p class="hint">If another device (Admin's, a rider's, or your own on a different phone) is showing old or missing data while <strong>this</strong> device has the correct, up-to-date numbers, use this to push this device's data out to everyone — overwriting the shared copy. Only do this after reopening the link here (not an old tab) so you know this device is current. This works even while syncing is paused above.</p>
   <button class="btn red" data-a="forceSyncAsk">Make this device the source of truth</button></section>`:''}`;
 }
 function vDiag(){
@@ -1895,6 +1954,7 @@ function act(a,el,ev){
   case 'checkLive':if(me.role!=='owner')return;checkLiveData();return;
   case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
   case 'doForceSync':if(me.role!=='owner')return;closeModal();forcePushLocal();return;
+  case 'toggleSyncLock':if(me.role!=='owner')return;setSyncLock(!S.settings.syncLocked);return;
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
 
