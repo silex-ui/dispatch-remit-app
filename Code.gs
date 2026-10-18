@@ -37,13 +37,16 @@ function getSheet_() {
   let sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NAME);
-    sh.getRange(1, 1, 1, 3).setValues([['version', 'data', 'updatedAt']]);
+    sh.getRange(1, 1, 1, 4).setValues([['version', 'data', 'updatedAt', 'writer']]);
     const seed = {
       settings: { ownerPin: '1903', adminPin: '1234', riders: [] },
       bookings: [], transactions: [], ledger: [], riderDays: {}
     };
-    sh.getRange(2, 1, 1, 3).setValues([[1, JSON.stringify(seed), new Date().toISOString()]]);
+    sh.getRange(2, 1, 1, 4).setValues([[1, JSON.stringify(seed), new Date().toISOString(), '']]);
   }
+  // Older sheets created before the "writer" column existed won't have a
+  // header for it yet — add it so writeState_ always has somewhere to put it.
+  if (sh.getLastColumn() < 4) sh.getRange(1, 4).setValue('writer');
   return sh;
 }
 
@@ -51,12 +54,18 @@ function readState_() {
   const sh = getSheet_();
   const version = sh.getRange(2, 1).getValue();
   const data = JSON.parse(sh.getRange(2, 2).getValue());
-  return { version, data };
+  const updatedAt = sh.getRange(2, 3).getValue();
+  const writer = sh.getRange(2, 4).getValue() || '';
+  return { version, data, updatedAt, writer };
 }
 
-function writeState_(version, data) {
+/** Identifies which device/browser sent a write, so two devices racing each
+ * other to overwrite the shared copy can actually be told apart afterward —
+ * otherwise every successful write looks identical from the outside, even
+ * when it came from a device holding stale/incomplete data. */
+function writeState_(version, data, writer) {
   const sh = getSheet_();
-  sh.getRange(2, 1, 1, 3).setValues([[version, JSON.stringify(data), new Date().toISOString()]]);
+  sh.getRange(2, 1, 1, 4).setValues([[version, JSON.stringify(data), new Date().toISOString(), writer || '']]);
 }
 
 function jsonOut_(obj) {
@@ -94,8 +103,8 @@ function doGet(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const { version, data } = readState_();
-    const out = { ok: true, version, data };
+    const { version, data, updatedAt, writer } = readState_();
+    const out = { ok: true, version, data, updatedAt, writer };
     return callback ? jsonpOut_(callback, out) : jsonOut_(out);
   } finally {
     lock.releaseLock();
@@ -112,7 +121,8 @@ function doPost(e) {
       body = {
         key: e.parameter.key,
         expectedVersion: e.parameter.expectedVersion,
-        data: JSON.parse(e.parameter.data)
+        data: JSON.parse(e.parameter.data),
+        writer: e.parameter.writer || ''
       };
     } catch (err) {
       return postMessageOut_(reqId, { ok: false, error: 'bad_json' });
@@ -137,7 +147,7 @@ function doPost(e) {
       return respond({ ok: false, conflict: true, version: current.version, data: current.data });
     }
     const newVersion = current.version + 1;
-    writeState_(newVersion, body.data);
+    writeState_(newVersion, body.data, body.writer || '');
     return respond({ ok: true, version: newVersion });
   } finally {
     lock.releaseLock();

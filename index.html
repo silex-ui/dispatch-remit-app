@@ -275,6 +275,25 @@ function saveSyncedLocal(v){try{localStorage.setItem(SYNC_KEY,JSON.stringify(v))
 
 let S=loadLocal();
 let sVer=0;
+/* -- a short, persistent label for THIS browser/device, so a write to the
+   shared sheet can say who sent it. This is the direct way to tell "my own
+   saves keep succeeding but something else is overwriting them right after"
+   apart from "my own saves aren't actually going out" — without this, both
+   look identical from a single device's point of view. -- */
+const DEVICE_KEY=KEY+'_deviceTag';
+function deviceTag(){
+  try{
+    let t=localStorage.getItem(DEVICE_KEY);
+    if(!t){
+      const adj=['swift','quiet','amber','coral','jade','violet','azure','misty','sunny','rapid'];
+      const noun=['tiger','falcon','otter','maple','harbor','ember','lotus','comet','willow','pebble'];
+      t=adj[Math.floor(Math.random()*adj.length)]+'-'+noun[Math.floor(Math.random()*noun.length)]+'-'+Math.floor(Math.random()*900+100);
+      localStorage.setItem(DEVICE_KEY,t);
+    }
+    return t;
+  }catch(e){return 'unknown-device'}
+}
+const DEVICE_TAG=deviceTag();
 const API_ON=!!(API_URL&&API_URL.indexOf('__')!==0);
 const sync={status:API_ON?'connecting':'local',msg:'',lastOkAt:0};
 function persist(){saveLocal();schedulePush()}
@@ -460,7 +479,7 @@ async function doPush(){
   if(pushing){pushAgain=true;return}
   pushing=true;sync.status='saving';render();
   try{
-    const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S)});
+    const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S),writer:DEVICE_TAG});
     if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg='';sync.lastOkAt=Date.now()}
     else if(j.conflict){
       pushFails=0;
@@ -549,6 +568,7 @@ async function checkLiveData(){
       const remoteNorm=normalize(j.data);
       ui.diag={loading:false,error:'',remote:countState(remoteNorm),local:countState(S),checkedAt:Date.now(),remoteVersion:j.version,localVersion:sVer,
         diffs:txDiffLists(S,remoteNorm),
+        lastWriter:j.writer||'(unknown — saved before this device tracked who)',lastWriterIsMe:j.writer===DEVICE_TAG,remoteUpdatedAt:j.updatedAt||'',
         live:{status:sync.status,msg:sync.msg,pushing,pushPending:!!pushTimer,retryPending:!!pushRetryTimer}};
     }else{
       ui.diag={loading:false,error:j.error||'Could not reach the shared sheet',remote:null,local:countState(S),checkedAt:0};
@@ -589,7 +609,7 @@ async function forcePushLocal(){
     try{
       const g=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
       const ver=g&&g.ok?g.version:sVer;
-      const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(ver),data:JSON.stringify(snapshot)});
+      const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(ver),data:JSON.stringify(snapshot),writer:DEVICE_TAG});
       if(j.ok){
         sVer=j.version;S=snapshot;lastSynced=clone(S);saveSyncedLocal(lastSynced);saveLocal();
         pushFails=0;sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
@@ -1478,6 +1498,7 @@ function vDiag(){
   ${row('Transactions (active)',d.local.txActive,d.remote.txActive)}
   </tbody></table></div>
   <p class="hint">Checked ${fmtSyncTime(d.checkedAt)} &middot; this device's save version: ${d.localVersion} &middot; sheet's save version: ${d.remoteVersion}${d.localVersion!==d.remoteVersion?' (different — this device has not picked up the latest save yet)':' (same)'}</p>
+  <p class="hint">This device's name: <strong>${esc(DEVICE_TAG)}</strong> &middot; the shared sheet's current data was last saved by: <strong>${esc(d.lastWriter)}</strong>${d.lastWriterIsMe?' (this device)':' (a different device)'}${d.remoteUpdatedAt?' at '+esc(new Date(d.remoteUpdatedAt).toLocaleTimeString()):''}</p>
   ${liveLine}
   ${d.diffs?diffBlock('On this device but not on the shared sheet',d.diffs.localOnly):''}
   ${d.diffs?diffBlock('On the shared sheet but not on this device',d.diffs.remoteOnly):''}`;
