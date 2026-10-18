@@ -549,12 +549,28 @@ async function checkLiveData(){
    does NOT merge with whatever is on the sheet — it takes this device's
    current data as-is and replaces the shared copy with it outright, then
    every other device picks that up on its next sync. Retries a few times
-   against the latest version number in case another device pushes mid-way. -- */
+   against the latest version number in case another device pushes mid-way.
+
+   IMPORTANT: this used to run as a completely separate loop from the
+   ordinary background sync (the 8-second poll, and the debounced push
+   after every edit). Both could end up writing to the server at the same
+   time, on the SAME device, each one's write immediately invalidating the
+   other's — the save version climbs every time either one "wins" a round,
+   but the two counts never settle, because they're actively fighting each
+   other rather than racing a different device. Holding the same `pushing`
+   flag the normal push loop checks, and pausing the poll timer for the
+   duration, makes this a true single save with nothing else allowed to
+   write in the middle of it. -- */
 async function forcePushLocal(){
   if(!API_ON){toast('Not connected — nothing to push.');return}
+  if(pushing){toast('A save is already in progress — try again in a moment.');return}
+  pushing=true;
+  if(pushRetryTimer){clearTimeout(pushRetryTimer);pushRetryTimer=null}
+  if(pushTimer){clearTimeout(pushTimer);pushTimer=null}
+  if(pollTimer){clearInterval(pollTimer);pollTimer=null}
   sync.status='saving';sync.msg='Pushing this device’s data to everyone…';render();
   const snapshot=clone(S);
-  let lastErr='';
+  let lastErr='',ok=false;
   for(let attempt=0;attempt<5;attempt++){
     try{
       const g=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
@@ -562,16 +578,23 @@ async function forcePushLocal(){
       const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(ver),data:JSON.stringify(snapshot)});
       if(j.ok){
         sVer=j.version;S=snapshot;lastSynced=clone(S);saveSyncedLocal(lastSynced);saveLocal();
-        pushFails=0;sync.status='online';sync.msg='';sync.lastOkAt=Date.now();render();
+        pushFails=0;sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
         toast('Done — this device’s data is now the shared copy.');
-        return;
+        ok=true;
+        break;
       }
       if(j.conflict){continue} // someone else saved in between — retry with the newer version
       lastErr=j.error||'Save failed';
     }catch(e){lastErr=(e&&e.message)||'No connection'}
   }
-  sync.status='offline';sync.msg=lastErr||'Could not push — try again in a moment';render();
-  toast('Could not push to the shared sheet. Check your connection and try again.');
+  if(!ok){
+    sync.status='offline';sync.msg=lastErr||'Could not push — try again in a moment';
+    toast('Could not push to the shared sheet. Check your connection and try again.');
+  }
+  pushing=false;render();
+  // Resume the normal background sync now that this save has fully landed
+  // (or given up), instead of leaving the device polling-silent forever.
+  pollTimer=setInterval(pollOnce,POLL_BASE_MS);
 }
 /* -- poll cadence: back off while failing instead of hammering the Apps Script
    quota every few seconds during an actual outage, which only makes it worse
