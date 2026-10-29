@@ -748,7 +748,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   sumDate:today(),ibF:null,caF:null,
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
-  pay:{from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
+  pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
   diag:null};
@@ -1238,8 +1238,15 @@ function vRemit(){
 function payList(){
   const f=ui.pay,q=f.q.trim().toLowerCase(),nq=f.notesQ.trim().toLowerCase();
   const anyStatus=Object.values(f.statusSel).some(Boolean);
+  // "All dates" (the default) ignores From/To entirely, so checking a status
+  // like NYP always shows every matching record regardless of when it
+  // happened — nothing gets hidden just because it falls outside whatever
+  // date range happened to be left over from an earlier look-up. Switching
+  // to "Custom range" applies From/To as before; neither mode ever changes
+  // or removes any stored transaction — it's display-only filtering.
+  const useRange=f.dateScope==='custom';
   return S.transactions.filter(t=>
-    (!f.from||t.date>=f.from)&&(!f.to||t.date<=f.to)&&
+    (!useRange||!f.from||t.date>=f.from)&&(!useRange||!f.to||t.date<=f.to)&&
     (f.rider==='all'||t.rider===f.rider)&&
     (!q||t.customer.toLowerCase().includes(q))&&
     (!nq||(t.notes||'').toLowerCase().includes(nq))&&
@@ -1270,8 +1277,10 @@ function vPaymentStatus(){
    <label class="f">Rider<select data-b="pay.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>
    <label class="f">Customer search<input type="text" data-b="pay.q" data-rr="1" value="${esc(f.q)}" placeholder="Type a name"></label>
    <label class="f">Notes search<input type="text" data-b="pay.notesQ" data-rr="1" value="${esc(f.notesQ)}" placeholder="Search notes"></label>
-   <label class="f">From<input type="date" data-b="pay.from" data-rr="1" value="${f.from}"></label>
-   <label class="f">To<input type="date" data-b="pay.to" data-rr="1" value="${f.to}"></label>
+   <label class="f">Date range<select data-b="pay.dateScope" data-rr="1"><option value="all" ${f.dateScope!=='custom'?'selected':''}>All dates</option><option value="custom" ${f.dateScope==='custom'?'selected':''}>Custom range</option></select>
+    <span class="hint">Keep this on "All dates" when checking a status like NYP, so nothing outside today's range gets missed.</span></label>
+   ${f.dateScope==='custom'?`<label class="f">From<input type="date" data-b="pay.from" data-rr="1" value="${f.from}"></label>
+   <label class="f">To<input type="date" data-b="pay.to" data-rr="1" value="${f.to}"></label>`:''}
   </div>
   <div class="f" style="margin-top:4px"><span>Status</span>
    <div class="statusfilter">${Object.keys(STATUS_LABEL).map(k=>`<label class="ck"><input type="checkbox" class="bigchk" data-a="togPayStatus" data-k="${k}" ${f.statusSel[k]?'checked':''}> ${STATUS_LABEL[k]}</label>`).join('')}</div>
@@ -1366,7 +1375,7 @@ async function downloadPayStatusImage(){
   wrap.style.cssText='position:fixed;left:-9999px;top:0;background:#fff;padding:22px;width:720px;font-family:Figtree,system-ui,sans-serif;color:#141C26';
   const totalDue=list.reduce((s,t)=>s+t.r.total,0);
   wrap.innerHTML=`<h2 style="font-family:'Bricolage Grotesque',sans-serif;margin:0 0 4px">Transaction history</h2>
-  <p style="margin:0 0 14px;color:#586577;font-size:.85rem">${f.rider!=='all'?'Rider: '+esc(f.rider)+' &middot; ':''}${f.from||f.to?'Date: '+(f.from||'start')+' to '+(f.to||'today')+' &middot; ':''}${new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</p>
+  <p style="margin:0 0 14px;color:#586577;font-size:.85rem">${f.rider!=='all'?'Rider: '+esc(f.rider)+' &middot; ':''}${f.dateScope==='custom'&&(f.from||f.to)?'Date: '+(f.from||'start')+' to '+(f.to||'today')+' &middot; ':''}${new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})}</p>
   <table style="width:100%;border-collapse:collapse;font-size:.85rem">
    <thead><tr style="text-align:left;border-bottom:2px solid #141C26">
     <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Customer</th><th style="padding:6px 8px">Rider</th><th style="padding:6px 8px;text-align:right">Amount due</th><th style="padding:6px 8px">Notes</th>
