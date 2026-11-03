@@ -45,6 +45,7 @@ textarea{resize:vertical}
 .sb-bad{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
 .hb{display:flex;gap:6px;align-items:center}
 .sb-refresh{padding:4px 9px;min-height:0;font-size:1rem;line-height:1}
+.sbwrap{display:contents}
 
 /* buttons */
 .btn{border:0;border-radius:12px;padding:0 16px;min-height:44px;font-weight:700;background:var(--ink);color:var(--surface);display:inline-flex;align-items:center;justify-content:center;gap:8px}
@@ -490,24 +491,27 @@ async function doPush(){
   // without something else's save racing in behind it. Local edits made
   // while paused are never lost — they stay on this device and flush out
   // automatically once the owner turns syncing back on.
-  if(S.settings.syncLocked){sync.status='paused';sync.msg='';render();return}
+  if(S.settings.syncLocked){sync.status='paused';sync.msg='';paintStatus();return}
   if(pushing){pushAgain=true;return}
-  pushing=true;sync.status='saving';render();
+  pushing=true;sync.status='saving';paintStatus();
+  let dataChanged=false;
   try{
     const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S),writer:DEVICE_TAG});
     if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg='';sync.lastOkAt=Date.now()}
     else if(j.conflict){
       pushFails=0;
       const remote=normalize(j.data);
+      const before=S;
       S=normalize(mergeState(lastSynced,S,remote));
+      dataChanged=!deepEq(before,S);
       sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
       sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
       pushAgain=true; // re-send so our preserved edits land under the new version
     }else{sync.status='offline';sync.msg=j.message||j.error||'Save failed — retrying in background';scheduleRetryPush()}
   }catch(e){sync.status='offline';sync.msg='No connection — saved on this device, retrying in background ['+(e&&e.message)+']';scheduleRetryPush()}
   pushing=false;
-  if(pushAgain){pushAgain=false;doPush();return}
-  render();
+  if(pushAgain){pushAgain=false;if(dataChanged)renderBg();doPush();return}
+  if(dataChanged)renderBg();else paintStatus();
 }
 
 /* -- pull the shared state, on boot and then on a quiet poll -- */
@@ -522,8 +526,8 @@ function safeToRefresh(){
 }
 let pollTimer=null;
 async function bootSync(){
-  if(!API_ON){sync.status='local';render();return}
-  sync.status='connecting';render();
+  if(!API_ON){sync.status='local';paintStatus();return}
+  sync.status='connecting';paintStatus();
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
     if(j.ok){
@@ -539,7 +543,7 @@ async function bootSync(){
     }
     else{sync.status='offline';sync.msg='Could not reach the shared sheet — showing the last copy saved on this device'}
   }catch(e){sync.status='offline';sync.msg='No connection — showing the last copy saved on this device ['+(e&&e.message)+']'}
-  render();
+  renderBg();
   if(pollTimer)clearInterval(pollTimer);
   pollTimer=setInterval(pollOnce,POLL_BASE_MS);
 }
@@ -589,7 +593,7 @@ async function checkLiveData(){
       ui.diag={loading:false,error:j.error||'Could not reach the shared sheet',remote:null,local:countState(S),checkedAt:0};
     }
   }catch(e){ui.diag={loading:false,error:(e&&e.message)||'No connection',remote:null,local:countState(S),checkedAt:0}}
-  render();
+  renderBg();
 }
 /* -- "Make this device the source of truth": an explicit, owner-triggered
    override for when a device's saved data never reached the shared sheet
@@ -641,14 +645,14 @@ async function setSyncLock(val){
         S=merged;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);saveLocal();
         sync.status=val?'paused':'online';sync.msg='';sync.lastOkAt=Date.now();
         toast(val?'Syncing paused — other devices will stop sending changes shortly.':'Syncing resumed for everyone.');
-        render();return;
+        renderBg();return;
       }
       if(j.conflict)continue;
       break;
     }
   }catch(e){}
   toast('Could not reach the shared sheet to change this — check your connection and try again.');
-  render();
+  renderBg();
 }
 async function forcePushLocal(){
   if(!API_ON){toast('Not connected — nothing to push.');return}
@@ -657,7 +661,7 @@ async function forcePushLocal(){
   if(pushRetryTimer){clearTimeout(pushRetryTimer);pushRetryTimer=null}
   if(pushTimer){clearTimeout(pushTimer);pushTimer=null}
   if(pollTimer){clearInterval(pollTimer);pollTimer=null}
-  sync.status='saving';sync.msg='Pushing this device’s data to everyone…';render();
+  sync.status='saving';sync.msg='Pushing this device’s data to everyone…';paintStatus();
   const snapshot=clone(S);
   let lastErr='',ok=false;
   for(let attempt=0;attempt<5;attempt++){
@@ -680,7 +684,7 @@ async function forcePushLocal(){
     sync.status='offline';sync.msg=lastErr||'Could not push — try again in a moment';
     toast('Could not push to the shared sheet. Check your connection and try again.');
   }
-  pushing=false;render();
+  pushing=false;renderBg();
   // Resume the normal background sync now that this save has fully landed
   // (or given up), instead of leaving the device polling-silent forever.
   pollTimer=setInterval(pollOnce,POLL_BASE_MS);
@@ -701,6 +705,7 @@ let pollFails=0,pollBackoffUntil=0;
 async function pollOnce(){
   if(!API_ON||pushing)return;
   if(!safeToRefresh())return;
+  if(pendingRender&&!userBusy())render({keep:true});
   if(Date.now()<pollBackoffUntil)return;
   try{
     const j=await jsonpGet(API_URL+'?key='+encodeURIComponent(API_KEY));
@@ -712,7 +717,7 @@ async function pollOnce(){
         const merged=normalize(mergeState(lastSynced,S,remote));
         const changed=!deepEq(merged,S);
         S=merged;sVer=j.version;lastSynced=clone(remote);saveSyncedLocal(lastSynced);saveLocal();
-        if(changed)render();
+        if(changed)renderBg();
         if(!deepEq(S,remote))schedulePush(); // we're holding local edits the sheet doesn't have yet — send them
       }else if(!pushTimer&&!pushRetryTimer&&!deepEq(S,lastSynced)){
         // Safety net: the sheet hasn't moved since we last checked, but this
@@ -724,11 +729,11 @@ async function pollOnce(){
       }
     }else{
       pollFails++;pollBackoffUntil=Date.now()+Math.min(60000,POLL_BASE_MS*Math.pow(2,Math.min(pollFails,4)));
-      sync.status='offline';sync.msg=j.error||'Could not reach the shared sheet — showing the last synced copy';render()
+      sync.status='offline';sync.msg=j.error||'Could not reach the shared sheet — showing the last synced copy';paintStatus()
     }
   }catch(e){
     pollFails++;pollBackoffUntil=Date.now()+Math.min(60000,POLL_BASE_MS*Math.pow(2,Math.min(pollFails,4)));
-    sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';render()
+    sync.status='offline';sync.msg='No connection — showing the last synced copy ['+(e&&e.message)+']';paintStatus()
   }
 }
 let me=null,view='login';
@@ -862,7 +867,7 @@ function vSyncBadge(){
 }
 function vLogin(){
   const r=ui.loginRole,rs=S.settings.riders;
-  return `<main class="login"><div><h1>Dispatch &amp; Remit</h1></div><p class="sub">Choose your role, then enter your PIN.</p>${vSyncNote()}
+  return `<main class="login"><div><h1>Dispatch &amp; Remit</h1></div><p class="sub">Choose your role, then enter your PIN.</p><div id="syncNote" class="sbwrap">${vSyncNote()}</div>
   <div class="seg" role="group" aria-label="Role">${['owner','admin','rider'].map(x=>`<button class="${r===x?'on':''}" data-a="lrole" data-v="${x}">${cap(x)}</button>`).join('')}</div>
   ${r==='rider'?`<label class="f">Rider<select id="lrider">${rs.length?rs.map(x=>`<option value="${esc(x.id)}" ${ui.loginRider===x.id?'selected':''}>${esc(x.name)}</option>`).join(''):'<option value="">No riders yet. Owner adds them in Settings.</option>'}</select></label>`:''}
   <label class="f">PIN<input id="lpin" type="password" inputmode="numeric" autocomplete="off" placeholder="Enter PIN"></label>
@@ -882,7 +887,7 @@ function vShell(){
   else if(view==='settings')body=vSettings();
   const lockBanner=S.settings.syncLocked?`<p class="err" role="alert" style="margin:0 0 10px">⏸ Syncing is paused by the Owner while fixing a device mismatch. Anything you do here still saves on this device and will go out automatically once syncing resumes — nothing is lost.</p>`:'';
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
-  <div class="hb">${vSyncBadge()}${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${body}`;
+  <div class="hb"><span id="syncBadge" class="sbwrap">${vSyncBadge()}</span>${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${body}`;
 }
 
 function vDash(){
@@ -1665,9 +1670,98 @@ function vModal(){
 }
 
 /* ---------- render ---------- */
-function render(){
-  $('#app').innerHTML=(me?vShell():vLogin())+vModal();
+/* -- WHY THIS IS MORE THAN A ONE-LINER: render() throws away and rebuilds the
+   whole screen. That used to be called by every background sync step (the
+   "Saving…" flash that fires half a second after ANY edit, the 8-second
+   poll, a connection hiccup), which silently:
+     - snapped a wide table's horizontal scroll back to the left,
+     - closed whatever field someone was in the middle of typing in,
+     - emptied the booking / payment pop-up forms (they're read straight
+       from the page when you press Save, not stored as you type), and
+     - cleared a half-typed login PIN.
+   Two protections now: (1) background syncing only repaints the little
+   status badge/note in place (paintStatus), and only redraws the whole
+   screen when real data changed AND nobody is typing, has a pop-up open,
+   or is mid-scroll (renderBg); (2) any redraw that does happen puts back
+   the scroll positions and, for background redraws, the focused field and
+   typed-but-unsaved text. -- */
+let lastRenderKey='',pendingRender=false,lastInteract=0,flushTimer=null,ignoreScrollUntil=0;
+/* A real finger/wheel/momentum-scroll counts as "busy"; the scroll events our
+   own scroll-position restore fires a moment after a redraw do not. */
+['touchstart','touchmove','wheel','scroll'].forEach(ev=>document.addEventListener(ev,()=>{
+  if(ev==='scroll'&&Date.now()<ignoreScrollUntil)return;
+  lastInteract=Date.now();
+},{passive:true,capture:true}));
+function renderKey(){
+  const m=ui.modal;
+  return (me?me.role+':'+view:'login')+'|'+(m?(m.type||'')+':'+(m.id||m.riderId||''):'');
 }
+const appCtls=()=>Array.from(document.querySelectorAll('#app input,#app select,#app textarea'));
+function userBusy(){return !safeToRefresh()||Date.now()-lastInteract<1500}
+function render(opts){
+  const app=$('#app'),key=renderKey(),same=key===lastRenderKey,keep=!!(opts&&opts.keep);
+  const snap={x:window.scrollX,y:window.scrollY,scrolls:[],vals:[],focus:null};
+  if(same){
+    app.querySelectorAll('.dtable,.md,.ov,textarea').forEach((el,i)=>{if(el.scrollLeft||el.scrollTop)snap.scrolls.push([i,el.scrollLeft,el.scrollTop])});
+    if(keep){
+      const ctls=appCtls(),ae=document.activeElement;
+      ctls.forEach((el,i)=>{
+        const t=(el.type||'').toLowerCase();
+        if(t==='checkbox'||t==='radio'||t==='button')return;
+        snap.vals.push({i,tag:el.tagName,id:el.id||'',b:(el.dataset&&el.dataset.b)||'',value:el.value});
+        if(el===ae){
+          let s=null,e=null;try{s=el.selectionStart;e=el.selectionEnd}catch(x){}
+          snap.focus={i,s,e};
+        }
+      });
+      const ae2=document.activeElement;
+      if(!snap.focus&&ae2&&ctls.indexOf(ae2)>=0)snap.focus={i:ctls.indexOf(ae2),s:null,e:null};
+    }
+  }
+  pendingRender=false;
+  app.innerHTML=(me?vShell():vLogin())+vModal();
+  lastRenderKey=key;
+  if(!same)return;
+  ignoreScrollUntil=Date.now()+400;
+  const sc=app.querySelectorAll('.dtable,.md,.ov,textarea');
+  snap.scrolls.forEach(([i,l,t])=>{const el=sc[i];if(el){el.scrollLeft=l;el.scrollTop=t}});
+  if(window.scrollX!==snap.x||window.scrollY!==snap.y)window.scrollTo(snap.x,snap.y);
+  if(keep){
+    const ctls=appCtls();
+    snap.vals.forEach(v=>{
+      const el=ctls[v.i];
+      if(el&&el.tagName===v.tag&&(el.id||'')===v.id&&((el.dataset&&el.dataset.b)||'')===v.b&&el.tagName!=='SELECT'&&el.value!==v.value)el.value=v.value;
+    });
+    if(snap.focus){
+      const el=ctls[snap.focus.i];
+      if(el){
+        try{el.focus({preventScroll:true})}catch(x){}
+        if(snap.focus.s!=null){try{el.setSelectionRange(snap.focus.s,snap.focus.e)}catch(x){}}
+      }
+    }
+  }
+}
+/* Sync status changed but no data did: refresh just the badge and the
+   offline note, leaving everything else (fields, scroll, pop-ups) alone. */
+function paintStatus(){
+  const b=document.getElementById('syncBadge');if(b)b.innerHTML=vSyncBadge();
+  const n=document.getElementById('syncNote');if(n)n.innerHTML=vSyncNote();
+}
+/* Real data changed in the background: redraw the screen, but only once the
+   person isn't in the middle of something; otherwise remember to do it as
+   soon as they're done. */
+function renderBg(){
+  paintStatus();
+  if(userBusy()){pendingRender=true;scheduleFlush();return}
+  render({keep:true});
+}
+function flushPending(){
+  flushTimer=null;
+  if(!pendingRender)return;
+  if(userBusy()){scheduleFlush();return}
+  render({keep:true});
+}
+function scheduleFlush(){if(!flushTimer)flushTimer=setTimeout(flushPending,1600)}
 
 /* ---------- csv ---------- */
 const q=v=>{v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
@@ -1960,7 +2054,7 @@ function act(a,el,ev){
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
-  case 'syncNow':manualSync();return;
+  case 'syncNow':lastInteract=0;manualSync();return;
   case 'checkLive':if(me.role!=='owner')return;checkLiveData();return;
   case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
   case 'doForceSync':if(me.role!=='owner')return;closeModal();forcePushLocal();return;
@@ -2064,6 +2158,7 @@ document.addEventListener('change',e=>{
   if(el.tagName==='SELECT'||el.dataset.rr)render();
 });
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='lpin')act('login',e.target)});
+document.addEventListener('focusout',()=>{if(pendingRender)setTimeout(flushPending,400)});
 render();
 bootSync();
 </script>
