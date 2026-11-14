@@ -166,6 +166,12 @@ textarea{resize:vertical}
 .dtable th{background:var(--surface2,rgba(0,0,0,.03));font-weight:700;position:sticky;top:0}
 .dtable tbody tr:last-child td{border-bottom:0}
 .dtable tbody tr.disreg-row{opacity:.55}
+.dtable.freeze{max-height:none}
+.dtable.freeze th:nth-child(-n+3),.dtable.freeze td:nth-child(-n+3){position:sticky;background:var(--surface,#fff);z-index:2}
+.dtable.freeze th:nth-child(-n+3){z-index:3}
+.dtable.freeze th:nth-child(1),.dtable.freeze td:nth-child(1){left:0;min-width:40px;width:40px}
+.dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:40px;min-width:104px;width:104px}
+.dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:144px;max-width:170px;overflow:hidden;text-overflow:ellipsis;box-shadow:3px 0 4px -2px rgba(0,0,0,.18)}
 .dtable td.notes-cell{white-space:normal;max-width:220px;min-width:140px}
 .empty-inline{color:var(--muted)}
 .bigchk{width:20px;height:20px;cursor:pointer}
@@ -1435,7 +1441,7 @@ function vPaymentStatus(){
   </div>
   ${list.length?(()=>{
     const tDue=list.reduce((s,t)=>s+t.r.total,0),tRecv=list.reduce((s,t)=>s+(t.received||0),0),tBal=list.reduce((s,t)=>s+balanceOf(t),0);
-    return `<div class="dtable"><table><thead><tr>
+    return `<div class="dtable freeze"><table><thead><tr>
    <th></th><th>Date</th><th>Customer</th><th>Rider</th><th>Amount due</th><th>Received</th><th>Balance</th><th>MOP</th><th>Account</th><th>Notes</th><th>Status</th><th></th>
   </tr></thead><tbody>${list.map(row).join('')}</tbody>
   <tfoot><tr style="font-weight:700;border-top:2px solid var(--line)">
