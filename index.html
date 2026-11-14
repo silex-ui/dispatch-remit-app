@@ -851,6 +851,12 @@ function leavesBookings(t){
 function bookingsHistoryAll(){
   return S.transactions.filter(t=>!leavesBookings(t)).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
 }
+function whyStays(t){
+  if(!dayPosted(t.rider,t.date))return t.rider+"'s remit for "+fmtDate(t.date)+' is not posted yet.';
+  if(t.status==='nyp'||!effectiveConfirmed(t))return 'the day was posted, but this payment is still not paid, so it was not part of the remit.';
+  if(t.remitted!==true)return 'the day was posted, but this transaction is not marked as remitted (its payment may have been changed after posting).';
+  return '';
+}
 const txLocked=t=>dayPosted(t.rider,t.date)&&t.remitted===true;
 /* Days posted before the app recorded WHEN have no timestamp; treat them as
    posted at the end of their own date so the 5-day window still has a
@@ -1181,7 +1187,7 @@ function vHistory(){
   <p class="hint">Every transaction stays here until its rider's day is posted on the Rider Remit dashboard. Once posted and remitted it leaves this list — but it always stays on the Payment Status dashboard, and nothing is ever deleted. Unposting a day (within 5 days) brings its transactions back here so you can correct them.</p>
   ${canEdit&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
   ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
-  <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div></div></div>
+  <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div>${(()=>{const w=whyStays(t);return w?`<div class="hint" style="margin:4px 0 0">Still here: ${esc(w)}</div>`:''})()}</div></div>
   <div class="amts"><b>${peso(t.r.total)}</b></div></div>
   <div class="pd"><span>${mopLabel(t)}</span><span>Received <b>${peso(t.received||0)}</b></span>${bal>0?`<span>Balance <b>${peso(bal)}</b></span>`:''}${t.tip?`<span>Tip <b>${peso(t.tip)}</b></span>`:''}</div>
   <div class="tools"><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>
