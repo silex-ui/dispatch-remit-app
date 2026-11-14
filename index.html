@@ -759,7 +759,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   diag:null};
 const newCalc=()=>({date:today(),customer:'',rider:'',riderManual:false,pabili:[],pAmt:'',pNote:'',pErr:'',service:false,
   cash:{type:'in',amt:'',mode:'pct',val:''},bills:[],billAmt:'',billPct:'1.5',bErr:'',fee:'120',disc:'0',hop:'0',wait:'0',other:'',otherNote:'',
-  bookingId:null,result:null,mop:'online',account:'keem',received:'',splitCash:'',splitOnline:'',status:'nyp',msg:'',savedId:null});
+  bookingId:null,editId:null,result:null,mop:'online',account:'keem',received:'',splitCash:'',splitOnline:'',status:'nyp',msg:'',savedId:null});
 let calc=newCalc();
 
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2400)}
@@ -832,6 +832,74 @@ const getRiderDay=(rider,date)=>S.riderDays[rdKey(rider,date)]||null;
 function shiftDate(d,n){const dt=new Date(d+'T00:00:00');dt.setDate(dt.getDate()+n);return dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate())}
 const dayTxns=(rider,date)=>S.transactions.filter(t=>t.rider===rider&&t.date===date&&t.status!=='disreg');
 const dayLedger=(rider,date)=>S.ledger.filter(e=>e.rider===rider&&e.date===date);
+
+/* ---------- posting window + what the Bookings history shows ----------
+   A transaction leaves the Bookings "Transaction history" only once its
+   rider's day has been POSTED and the transaction was included in that
+   remit (or it was disregarded, which never carries money). Everything
+   else — unposted days, cash still not paid — stays listed, whatever its
+   date. This only decides what is SHOWN there: no transaction is ever
+   deleted by it, and the Payment Status dashboard always lists them all.
+   Unposting a day (allowed for 5 days after posting) un-remits that day's
+   transactions, so they simply reappear for correction. */
+const UNPOST_WINDOW_MS=5*24*60*60*1000;
+const dayPosted=(rider,date)=>{const r=getRiderDay(rider,date);return !!(r&&r.posted)};
+function leavesBookings(t){
+  if(!dayPosted(t.rider,t.date))return false;
+  return t.remitted===true||t.status==='disreg';
+}
+function bookingsHistoryAll(){
+  return S.transactions.filter(t=>!leavesBookings(t)).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+}
+const txLocked=t=>dayPosted(t.rider,t.date)&&t.remitted===true;
+/* Days posted before the app recorded WHEN have no timestamp; treat them as
+   posted at the end of their own date so the 5-day window still has a
+   sensible start. */
+function postedAtOf(rec,date){
+  if(rec&&rec.postedAt)return{ts:rec.postedAt,estimated:false};
+  return{ts:new Date(shiftDate(date,1)+'T00:00:00').getTime(),estimated:true};
+}
+function unpostStatus(rider,date,now){
+  now=now||Date.now();
+  const rec=getRiderDay(rider,date);
+  if(!rec||!rec.posted)return{ok:false,reason:'not-posted'};
+  const p=postedAtOf(rec,date),until=p.ts+UNPOST_WINDOW_MS;
+  const laterPosted=Object.keys(S.riderDays).some(k=>{
+    if(k.indexOf(rider+'__')!==0)return false;
+    const d=k.slice(rider.length+2);
+    return d>date&&S.riderDays[k]&&S.riderDays[k].posted;
+  });
+  if(laterPosted)return{ok:false,reason:'later-posted',until,estimated:p.estimated};
+  if(now>until)return{ok:false,reason:'expired',until,estimated:p.estimated};
+  return{ok:true,until,estimated:p.estimated};
+}
+function unpostWhyNot(st){
+  if(st.reason==='later-posted')return 'A later day for this rider is already posted — unpost the most recent one first.';
+  if(st.reason==='expired')return 'Unposting is only allowed within 5 days of posting, and that window has closed — this day stays locked.';
+  return 'This day is not posted.';
+}
+function unpostBlock(rider,date){
+  const st=unpostStatus(rider,date);
+  const when=ts=>new Date(ts).toLocaleString('en-PH',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  if(st.ok)return `<button class="btn ghost" style="margin-top:8px" data-a="unpostAsk" data-rider="${esc(rider)}">Unpost this day (reopen for editing)</button>
+   <p class="hint">Unposting is possible until ${when(st.until)}${st.estimated?' (estimated — this day was posted before the app recorded the exact time)':''}. After that the day stays locked.</p>`;
+  return `<p class="hint">${esc(unpostWhyNot(st))}</p>`;
+}
+/* Rebuild the calculator's inputs from a saved transaction, so it can be
+   corrected there and saved back over the same record. */
+function calcFromTx(t){
+  const r=t.r||{},c=newCalc();
+  c.date=t.date;c.customer=t.customer;c.editId=t.id;
+  if(S.settings.riders.some(x=>x.name===t.rider))c.rider=t.rider;else if(t.rider){c.rider=t.rider;c.riderManual=true}
+  c.pabili=(r.pabiliList&&r.pabiliList.length)?r.pabiliList.map(e=>({amt:e.amt,note:e.note})):((r.pabili||0)>0?[{amt:r.pabili,note:'Earlier pabili total'}]:[]);
+  c.service=(r.service||0)>0;
+  c.cash={type:r.cashType||'in',amt:r.cashAmt?String(r.cashAmt):'',mode:r.cashMode||'pct',val:(r.cashAmt||r.cashCharge)?String(r.cashVal||''):''};
+  c.bills=(r.billList&&r.billList.length)?r.billList.slice():((r.bills||0)>0?[r.bills]:[]);
+  c.billPct=((r.bills||0)>0||(r.billCharge||0)>0)?String(r.billPct||0):'1.5';
+  c.fee=String(r.fee||0);c.disc=String(r.disc||0);c.hop=String(r.hop||0);c.wait=String(r.wait||0);
+  c.other=r.other?String(r.other):'';c.otherNote=r.otherNote||'';
+  return c;
+}
 function daySummary(rider,date){
   const rec=getRiderDay(rider,date);
   const prior=getRiderDay(rider,shiftDate(date,-1));
@@ -962,7 +1030,8 @@ function vCalc(){
     ?`<input type="text" data-b="c.rider" value="${esc(c.rider)}" placeholder="Rider name"><button class="link" data-a="riderList">Choose from list</button>`
     :`<select data-b="c.rider"><option value="">Select rider</option>${rs.map(n=>`<option value="${esc(n)}" ${c.rider===n?'selected':''}>${esc(n)}</option>`).join('')}<option value="__m">Write manually</option></select>`;
   return `<section class="card" id="calc"><h2>Calculator <button class="btn ghost" data-a="calcReset">Clear</button></h2>
-  <div class="grid2"><label class="f">Date<input type="date" data-b="c.date" value="${esc(c.date)}" min="${today()}"></label>
+  ${c.editId?`<p class="hint" style="background:color-mix(in srgb,var(--orange) 14%,var(--surface));border:1.5px solid var(--orange);border-radius:10px;padding:10px 12px;color:var(--ink)"><b>Editing a saved transaction</b> — change whatever was entered wrong, tap CALCULATE, then Save changes. Payment details stay as they are. <button class="link" data-a="calcReset" style="display:inline;min-height:0;padding:0 0 0 6px">Cancel edit</button></p>`:''}
+  <div class="grid2"><label class="f">Date<input type="date" data-b="c.date" value="${esc(c.date)}" ${c.editId?'':`min="${today()}"`}></label>
   <label class="f">Customer name<input type="text" data-b="c.customer" value="${esc(c.customer)}" autocomplete="off"></label></div>
   <div class="f"><span>Assigned rider</span>${riderField}</div>
 
@@ -1022,10 +1091,10 @@ function vSummary(){
   <div class="blk">${rows}</div>
   <div class="total"><span>Total amount</span><b>${peso(r.total)}</b></div>
   ${pbrk}</div>
-  <p class="hint">Payment details (mode of payment, amount received, status) are set afterward from the transaction's "Update payment" link in history.</p>
-  ${c.savedId?`<p class="hint" style="color:var(--green);font-weight:600">Saved to history. Find it there to set payment details, or reset below to start a new calculation.</p>`:''}
+  <p class="hint">${c.editId?'Saving replaces this transaction\'s details in history (it does not create a second one). Its payment details are kept — use "Update payment" in history if those need changing too.':'Payment details (mode of payment, amount received, status) are set afterward from the transaction\'s "Update payment" link in history.'}</p>
+  ${c.savedId?`<p class="hint" style="color:var(--green);font-weight:600">${c.editId?'Changes saved. The updated details are in history.':'Saved to history. Find it there to set payment details, or reset below to start a new calculation.'}</p>`:''}
   <div class="mbtns" style="justify-content:flex-start"><button class="btn ghost" data-a="downloadSummary">Download summary (.jpg)</button><button class="btn ghost" data-a="calcReset">Reset</button></div>
-  <button class="btn green big" data-a="saveTx" ${c.savedId?'disabled':''}>${c.savedId?'Saved ✓':'Save to history'}</button></section>`;
+  <button class="btn green big" data-a="saveTx" ${c.savedId?'disabled':''}>${c.savedId?'Saved ✓':(c.editId?'Save changes':'Save to history')}</button></section>`;
 }
 const receivedOf=c=>c.mop==='split'?num(c.splitCash)+num(c.splitOnline):num(c.received);
 function payFields(prefix,c,total){
@@ -1080,15 +1149,14 @@ function bookingCountMap(){
   return map;
 }
 function vHistory(){
-  const t0=today();
-  const all=S.transactions.filter(t=>t.date===t0).sort((a,b)=>b.ts-a.ts);
+  const all=bookingsHistoryAll();
   const list=ui.showAll?all:all.slice(0,10);
   const bc=bookingCountMap();
   const canEdit=me.role==='owner'||me.role==='admin';
   const selCount=list.filter(t=>ui.selTx[t.id]).length;
   const allSel=list.length>0&&selCount===list.length;
   return `<section class="card"><h2>Transaction history${S.transactions.length?`<button class="btn ghost" data-a="historyCsv">Download history (.csv)</button>`:''}</h2>
-  <p class="hint">Showing today's transactions only. Every transaction, past and present, stays listed on the Payment Status dashboard — nothing shown only here is ever deleted.</p>
+  <p class="hint">Every transaction stays here until its rider's day is posted on the Rider Remit dashboard. Once posted and remitted it leaves this list — but it always stays on the Payment Status dashboard, and nothing is ever deleted. Unposting a day (within 5 days) brings its transactions back here so you can correct them.</p>
   ${canEdit&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
   ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div></div></div>
@@ -1096,9 +1164,10 @@ function vHistory(){
   <div class="pd"><span>${mopLabel(t)}</span><span>Received <b>${peso(t.received||0)}</b></span>${bal>0?`<span>Balance <b>${peso(bal)}</b></span>`:''}${t.tip?`<span>Tip <b>${peso(t.tip)}</b></span>`:''}</div>
   <div class="tools"><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>
   ${canEdit?`<button class="link" data-a="editPay" data-id="${t.id}">Update payment</button>`:''}
+  ${canEdit?`<button class="link" data-a="editTx" data-id="${t.id}">Edit details</button>`:''}
   <button class="link" data-a="hx" data-id="${t.id}">${ui.hx[t.id]?'Hide details':'Details'}</button>
   ${canEdit?`<button class="link" style="color:var(--red)" data-a="delTx" data-id="${t.id}">Delete</button>`:''}</div>
-  ${ui.hx[t.id]?`<div class="txd">${txDetail(t)}</div>`:''}</li>`}).join('')}</ul>`:'<p class="empty">Saved transactions appear here.</p>'}
+  ${ui.hx[t.id]?`<div class="txd">${txDetail(t)}</div>`:''}</li>`}).join('')}</ul>`:'<p class="empty">Nothing waiting here — saved transactions appear here until their day is posted.</p>'}
   ${all.length>10?`<button class="btn ghost" data-a="showAll">${ui.showAll?'Show latest 10':'Show all '+all.length}</button>`:''}</section>`;
 }
 
@@ -1193,6 +1262,7 @@ function vDailySummary(riderName){
   </div>
   ${ca>0?`<div class="stats"><div class="stat wide"><small>Cash advance balance</small><b>${peso(ca)}</b><span class="dsub">Still owed from a cash advance — repaid through deductions, not included in Total Rider Fund</span></div></div>`:''}
   ${canEdit?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:''}
+  ${canEdit&&sum.posted?unpostBlock(riderName,d):''}
   <button class="btn blue" style="margin-top:8px" data-a="downloadRemitImage" data-rider="${esc(riderName)}">Download summary (.jpeg)</button>
   </section>`;
 }
@@ -1605,7 +1675,7 @@ function vModal(){
     body=`<h3>Assign a rider</h3><p class="hint">${esc(b?b.customer:'')}</p><div class="f"><span>Assigned rider</span>${riderSel(b&&b.rider||'','mrs','mrm')}</div>
     <p class="err" id="mErr" role="alert"></p><div class="mbtns"><button class="btn ghost" data-a="mclose">Cancel</button><button class="btn purple" data-a="doAssign" data-id="${m.id}">Move to on-going</button></div>`;
   }else if(m.type==='confirm'){
-    body=`<h3>${esc(m.title)}</h3><p>${esc(m.msg)}</p><div class="mbtns"><button class="btn ghost" data-a="mclose">Keep it</button><button class="btn red" data-a="${m.yes}" data-id="${m.id}">Delete</button></div>`;
+    body=`<h3>${esc(m.title)}</h3><p>${esc(m.msg)}</p><div class="mbtns"><button class="btn ghost" data-a="mclose">${esc(m.noLabel||'Keep it')}</button><button class="btn ${m.yesCls||'red'}" data-a="${m.yes}" data-id="${m.id}">${esc(m.yesLabel||'Delete')}</button></div>`;
   }else if(m.type==='rider'){
     const r=S.settings.riders.find(x=>x.id===m.id);
     body=`<h3>Change PIN for ${esc(r?r.name:'')}</h3><label class="f">New PIN<input id="npin" type="text" inputmode="numeric" value="${esc(r?r.pin:'')}"></label><p class="err" id="mErr" role="alert"></p>
@@ -1922,13 +1992,22 @@ function act(a,el,ev){
   case 'calcReset':calc=newCalc();break;
   case 'calculate':{
     calc.msg='';
-    if(calc.date<today()){calc.msg='The date cannot be before today.';calc.result=null;break}
+    if(calc.date<today()&&!calc.editId){calc.msg='The date cannot be before today.';calc.result=null;break}
     if(!calc.customer.trim()||!calc.rider.trim()){calc.msg='Please check customer name or assigned rider details!';calc.result=null;break}
     if(num(calc.pAmt)>0){calc.msg='Tap Add to include the pabili amount, or clear it.';calc.result=null;break}
     if(num(calc.billAmt)>0){calc.msg='Tap Add to include the bill amount, or clear it.';calc.result=null;break}
     if(num(calc.other)>0&&!calc.otherNote.trim()){calc.msg='Add the reason for the other discount.';calc.result=null;break}
     calc.result=compute(calc);calc.savedId=null;render();const s=$('#summary');if(s)s.scrollIntoView({behavior:'smooth',block:'start'});return;}
   case 'saveTx':{if(!calc.result||calc.savedId)return;
+    if(calc.editId){
+      const t=S.transactions.find(x=>x.id===calc.editId);
+      if(!t){calc.msg='This transaction no longer exists (it may have been deleted on another device), so nothing was changed.';calc.result=null;calc.editId=null;break}
+      if(txLocked(t)){calc.msg='This transaction is part of a posted rider remit. Unpost that day on the Rider Remit dashboard first, then edit it.';calc.result=null;break}
+      const nr=calc.rider.trim();
+      if(dayPosted(nr,calc.date)&&!(t.rider===nr&&t.date===calc.date)){calc.msg=nr+'\'s day for '+fmtDate(calc.date)+' is already posted — choose a different date or rider, or unpost that day first.';calc.result=null;break}
+      Object.assign(t,{date:calc.date,customer:calc.customer.trim(),rider:nr,r:calc.result,editedAt:Date.now()});
+      calc.savedId=t.id;persist();toast('Changes saved — history updated');break;
+    }
     if(calc.date<today()){calc.msg='The date cannot be before today.';calc.result=null;break}
     const txId=uid();
     S.transactions.push({id:txId,ts:Date.now(),date:calc.date,customer:calc.customer.trim(),rider:calc.rider.trim(),r:calc.result,
@@ -1955,12 +2034,26 @@ function act(a,el,ev){
     if(t){Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified')t.remitted=false;persist()}
     closeModal();toast('Payment updated'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
   case 'overpayNoEdit':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
+  case 'editTx':{if(me.role==='rider')return;const t=S.transactions.find(x=>x.id===id);if(!t)return;
+    if(txLocked(t)){toast('This transaction is part of a posted rider remit — unpost that day on the Rider Remit dashboard first.');return}
+    const dirty=!!(calc.customer.trim()||calc.pabili.length||calc.bills.length||num(calc.cash.amt)>0||(calc.result&&!calc.savedId));
+    if(dirty&&calc.editId!==id){ui.modal={type:'confirm',title:'Replace what is in the calculator?',msg:'The calculator has details that were not saved. Loading this transaction will replace them.',yes:'editTxYes',id,yesLabel:'Replace and edit',yesCls:'orange',noLabel:'Keep mine'};break}
+    /* falls through to the same loader */
+    return act('editTxYes',el,ev);}
+  case 'editTxYes':{const t=S.transactions.find(x=>x.id===id);if(!t){closeModal();return}
+    closeModal();
+    calc=calcFromTx(t);
+    ui.cash=!!((calc.cash.amt!==''&&num(calc.cash.amt)>0)||num(calc.cash.val)>0);
+    ui.bills=calc.bills.length>0;
+    render();
+    const c0=$('#calc');if(c0)c0.scrollIntoView({behavior:'smooth',block:'start'});
+    toast('Loaded into the calculator — fix the details, tap CALCULATE, then Save changes');return;}
   case 'hx':ui.hx[id]=!ui.hx[id];break;
   case 'showAll':ui.showAll=!ui.showAll;break;
   case 'delTx':ui.modal={type:'confirm',title:'Delete this transaction?',msg:'It will also leave the remit totals.',yes:'delTxYes',id};break;
   case 'delTxYes':S.transactions=S.transactions.filter(t=>t.id!==id);persist();closeModal();toast('Transaction deleted');break;
   case 'selTx':if(el.checked)ui.selTx[id]=true;else delete ui.selTx[id];break;
-  case 'selAllTx':{const t0=today();const all=S.transactions.filter(t=>t.date===t0).sort((x,y)=>y.ts-x.ts);const list=ui.showAll?all:all.slice(0,10);
+  case 'selAllTx':{const all=bookingsHistoryAll();const list=ui.showAll?all:all.slice(0,10);
     const allSel=list.length>0&&list.every(t=>ui.selTx[t.id]);
     if(allSel)list.forEach(t=>delete ui.selTx[t.id]);else list.forEach(t=>ui.selTx[t.id]=true);break;}
   case 'delSelTx':{const n=Object.keys(ui.selTx).filter(k=>ui.selTx[k]).length;if(!n)return;
@@ -2047,13 +2140,42 @@ function act(a,el,ev){
     ui.caF=null;persist();toast('Cash advance balance saved');break;}
   case 'postDay':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
     const sum=daySummary(rider,date);
-    S.riderDays[key]={...(S.riderDays[key]||{}),initialBudget:sum.initialBudget,posted:true,closingFund:sum.totalRiderFund};
-    dayTxns(rider,date).filter(effectiveConfirmed).forEach(t=>{t.remitted=true});
+    const prevRec=S.riderDays[key]||{};
+    const remitList=dayTxns(rider,date).filter(effectiveConfirmed);
+    /* remittedIds + postedAt are what make this day reversible: unposting
+       knows exactly which transactions this post marked as remitted, and the
+       5-day window knows when it started. */
+    const posted={...prevRec,initialBudget:sum.initialBudget,posted:true,closingFund:sum.totalRiderFund,postedAt:Date.now(),remittedIds:remitList.map(t=>t.id)};
+    delete posted.closingFundWas;
+    S.riderDays[key]=posted;
+    remitList.forEach(t=>{t.remitted=true});
     const nextKey=rdKey(rider,shiftDate(date,1));
-    if(!S.riderDays[nextKey])S.riderDays[nextKey]={initialBudget:sum.totalRiderFund,posted:false};
+    const nextRec=S.riderDays[nextKey];
+    if(!nextRec)S.riderDays[nextKey]={initialBudget:sum.totalRiderFund,posted:false};
+    /* re-posting after an unpost + correction: carry the corrected closing
+       fund into the next day, but only if that day still holds the figure
+       the earlier post seeded (i.e. nobody typed a different amount there). */
+    else if(!nextRec.posted&&prevRec.closingFundWas!=null&&num(nextRec.initialBudget)===num(prevRec.closingFundWas))S.riderDays[nextKey]={...nextRec,initialBudget:sum.totalRiderFund};
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
+  case 'unpostAsk':{if(me.role==='rider')return;const rider=el.dataset.rider,date=ui.sumDate;
+    const st=unpostStatus(rider,date);
+    if(!st.ok){toast(unpostWhyNot(st));return}
+    const rec=getRiderDay(rider,date);
+    const n=(Array.isArray(rec.remittedIds)?S.transactions.filter(t=>rec.remittedIds.indexOf(t.id)>=0):dayTxns(rider,date).filter(effectiveConfirmed)).length;
+    ui.modal={type:'confirm',title:'Unpost this day?',msg:rider+'\'s remit for '+fmtDate(date)+' will reopen for editing, and '+n+' transaction'+(n===1?'':'s')+' will come back to the Bookings transaction history so they can be corrected. Nothing is deleted, and you can post the day again afterward.',yes:'unpostYes',id:'',yesLabel:'Yes, unpost',yesCls:'orange',noLabel:'Cancel',rider,date};break;}
+  case 'unpostYes':{const m=ui.modal;if(!m||me.role==='rider')return;
+    const rider=m.rider,date=m.date,key=rdKey(rider,date);
+    const st=unpostStatus(rider,date);
+    if(!st.ok){closeModal();toast(unpostWhyNot(st));return}
+    const rec=S.riderDays[key];
+    const ids=new Set(Array.isArray(rec.remittedIds)?rec.remittedIds:dayTxns(rider,date).filter(effectiveConfirmed).map(t=>t.id));
+    S.transactions.forEach(t=>{if(ids.has(t.id))t.remitted=false});
+    const nr={...rec,posted:false,unpostedAt:Date.now(),closingFundWas:rec.closingFund};
+    delete nr.closingFund;delete nr.postedAt;delete nr.remittedIds;
+    S.riderDays[key]=nr;
+    persist();closeModal();toast('Day unposted — its transactions are back in Bookings history for editing');break;}
   case 'syncNow':lastInteract=0;manualSync();return;
   case 'checkLive':if(me.role!=='owner')return;checkLiveData();return;
   case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
