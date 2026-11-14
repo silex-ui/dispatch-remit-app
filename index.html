@@ -251,13 +251,14 @@ const KEY='delivery_dispatch_remit_v1';
    Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
 const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
 const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
-const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[]});
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[],badOrders:[]});
 function normalize(s){
   if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
   s.ledger=s.ledger||[];
   s.riderDays=s.riderDays||{};
   s.flags=s.flags||[];
+  s.badOrders=s.badOrders||[];
   (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0;if(!r.token)r.token=genToken()});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   if(s.settings.syncLocked==null)s.settings.syncLocked=false;
@@ -445,14 +446,15 @@ function mergeState(base,local,remote){
     transactions:mergeArrayById(base.transactions,local.transactions,remote.transactions),
     ledger:mergeArrayById(base.ledger,local.ledger,remote.ledger),
     riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays),
-    flags:mergeArrayById(base.flags,local.flags,remote.flags)
+    flags:mergeArrayById(base.flags,local.flags,remote.flags),
+    badOrders:mergeArrayById(base.badOrders,local.badOrders,remote.badOrders)
   };
   // Safety net: if either side has a top-level field this version of the
   // code doesn't explicitly know how to merge yet (e.g. a device still
   // running slightly older code than the one that just added a new
   // feature), carry it over instead of silently dropping it. Local wins
   // when both have it, since it's the most recently touched copy.
-  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags']);
+  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags','badOrders']);
   [local,remote].forEach(src=>{
     Object.keys(src).forEach(k=>{
       if(!known.has(k)&&!(k in out))out[k]=src[k];
@@ -753,6 +755,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   sumDate:today(),ibF:null,caF:null,
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
+  bad:{date:today(),amount:'',reason:'',err:''},
   pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
@@ -853,9 +856,25 @@ function bookingsHistoryAll(){
 }
 function whyStays(t){
   if(!dayPosted(t.rider,t.date))return t.rider+"'s remit for "+fmtDate(t.date)+' is not posted yet.';
-  if(t.status==='nyp'||!effectiveConfirmed(t))return 'the day was posted, but this payment is still not paid, so it was not part of the remit.';
-  if(t.remitted!==true)return 'the day was posted, but this transaction is not marked as remitted (its payment may have been changed after posting).';
+  if(!effectiveConfirmed(t))return 'the day was posted, but this is a cash order not yet collected, so it was not part of the remit.';
+  if(t.remitted!==true)return 'the day was posted, but this transaction is not marked as remitted.';
   return '';
+}
+/* Online money (GCash/Bank/NYP, and the online part of a Split) is advanced to the
+   rider by management when the Owner posts the day, whether or not the customer
+   has paid yet — so every such transaction on a posted day counts as remitted.
+   This brings older posted days in line (it only sets the remitted flag). */
+function repairRemits(){
+  let changed=false;
+  S.transactions.forEach(t=>{
+    if(t.status==='disreg'||t.mop==='cash'||t.remitted===true)return;
+    const rec=getRiderDay(t.rider,t.date);
+    if(!rec||!rec.posted)return;
+    if(rec.postedAt&&t.ts>rec.postedAt)return;
+    t.remitted=true;changed=true;
+    if(Array.isArray(rec.remittedIds)&&rec.remittedIds.indexOf(t.id)<0)rec.remittedIds=rec.remittedIds.concat(t.id);
+  });
+  return changed;
 }
 const txLocked=t=>dayPosted(t.rider,t.date)&&t.remitted===true;
 /* Days posted before the app recorded WHEN have no timestamp; treat them as
@@ -1544,7 +1563,11 @@ function vReport(){
   const f=ui.report;
   const inRange=S.transactions.filter(t=>t.date>=f.from&&t.date<=f.to&&t.status!=='disreg');
   const counted=inRange.filter(effectiveConfirmed);
-  const mgmtTotal=counted.reduce((s,t)=>s+mgmtEarn(t),0);
+  const mgmtGross=counted.reduce((s,t)=>s+mgmtEarn(t),0);
+  const bads=(S.badOrders||[]).filter(b=>b.date>=f.from&&b.date<=f.to).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+  const badTotal=bads.reduce((s,b)=>s+num(b.amount),0);
+  const mgmtTotal=mgmtGross-badTotal;
+  const bf=ui.bad;
   const riderTotal=counted.reduce((s,t)=>s+earn(t),0);
   const grossTotal=counted.reduce((s,t)=>s+t.r.total,0);
   const byRider={};
@@ -1563,7 +1586,8 @@ function vReport(){
    <label class="f">To<input type="date" data-b="ui.report.to" data-rr="1" value="${f.to}"></label>
   </div>
   <div class="stats">
-   ${stat('Management total earnings',mgmtTotal)}
+   ${stat('Management total earnings',mgmtTotal,badTotal>0?'After bad orders: '+peso(mgmtGross)+' &minus; '+peso(badTotal):'')}
+   ${stat('Bad orders (deducted)',badTotal,bads.length+' entr'+(bads.length===1?'y':'ies')+' in this range')}
    ${stat('Rider total earnings',riderTotal)}
    ${stat('Gross amount (all bookings)',grossTotal,'Before splitting into management/rider shares')}
    ${stat('Bookings / transactions',inRange.length,'Disregarded bookings excluded')}
@@ -1573,6 +1597,16 @@ function vReport(){
   <tbody>${riders.map(r=>`<tr><td>${esc(r)}</td><td class="num">${byRider[r].bookings}</td><td class="num">${peso(byRider[r].rider)}</td><td class="num">${peso(byRider[r].mgmt)}</td></tr>`).join('')}</tbody>
   <tfoot><tr style="font-weight:700;border-top:2px solid var(--line)"><td>Total</td><td class="num">${inRange.length}</td><td class="num">${peso(riderTotal)}</td><td class="num">${peso(mgmtTotal)}</td></tr></tfoot>
   </table></div>`:'<p class="empty">No bookings in this range.</p>'}
+  <h3 style="margin-top:18px">Bad orders</h3>
+  <p class="hint">Record a bad order for a day, with the reason. Each entry is deducted from management's earnings for that day. Add as many as needed.</p>
+  <div class="grid2">
+   <label class="f">Date<input type="date" data-b="ui.bad.date" value="${esc(bf.date)}"></label>
+   <label class="f">Amount (₱)<input type="number" inputmode="decimal" step="any" min="0" data-b="ui.bad.amount" value="${esc(bf.amount)}"></label>
+  </div>
+  <label class="f">Reason<input data-b="ui.bad.reason" value="${esc(bf.reason)}" placeholder="What happened (e.g. wrong item, spoiled, customer refused)"></label>
+  ${bf.err?`<p class="err">${esc(bf.err)}</p>`:''}
+  <button class="btn blue" data-a="addBad">Add bad order</button>
+  ${bads.length?`<ul class="flaglist">${bads.map(b=>`<li><span><strong>${fmtDate(b.date)}</strong> &mdash; ${peso(b.amount)} &mdash; ${esc(b.reason)}</span><span class="flagbtns"><button class="btn ghost sm" data-a="delBad" data-id="${b.id}">Delete</button></span></li>`).join('')}</ul>`:'<p class="empty">No bad orders in this date range.</p>'}
   </section>`;
 }
 /* flags & notes */
@@ -1798,6 +1832,7 @@ function renderKey(){
 const appCtls=()=>Array.from(document.querySelectorAll('#app input,#app select,#app textarea'));
 function userBusy(){return !safeToRefresh()||Date.now()-lastInteract<1500}
 function render(opts){
+  if(me&&repairRemits())persist();
   const app=$('#app'),key=renderKey(),same=key===lastRenderKey,keep=!!(opts&&opts.keep);
   const snap={x:window.scrollX,y:window.scrollY,scrolls:[],vals:[],focus:null};
   if(same){
@@ -2057,10 +2092,10 @@ function act(a,el,ev){
     const status=m.mop==='cash'?'verified':m.status;
     const fields={mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,notes:(m.notes||'').trim()};
     if(excess>0){ui.modal={type:'overpay',excess,yes:'overpayYesEdit',no:'overpayNoEdit',_id:id,_fields:fields,_orig:m};break}
-    Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
+    Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
   case 'overpayYesEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
     const tip=(m.excess>=1&&m.excess<=300)?m.excess:0;
-    if(t){Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified')t.remitted=false;persist()}
+    if(t){Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist()}
     closeModal();toast('Payment updated'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
   case 'overpayNoEdit':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
   case 'editTx':{if(me.role==='rider')return;const t=S.transactions.find(x=>x.id===id);if(!t)return;
@@ -2230,6 +2265,12 @@ function act(a,el,ev){
     if(!note){toast('Enter a reminder');return}
     S.flags.push({id:uid(),ts:Date.now(),kind:'note',rider:f.rider,note});
     persist();ui.flagF.note={rider:'',note:''};toast('Reminder added');break;}
+  case 'addBad':{if(me.role!=='owner')return;const f=ui.bad,amt=num(f.amount),reason=(f.reason||'').trim();
+    if(!f.date||!(amt>0)){f.err='Enter the date and an amount greater than zero.';break}
+    if(!reason){f.err='Enter the reason for this bad order.';break}
+    S.badOrders.push({id:uid(),ts:Date.now(),date:f.date,amount:amt,reason,by:me.role});
+    persist();ui.bad={date:f.date,amount:'',reason:'',err:''};toast('Bad order added');break;}
+  case 'delBad':{if(me.role!=='owner')return;S.badOrders=S.badOrders.filter(b=>b.id!==id);persist();toast('Bad order removed');break;}
   case 'delFlag':S.flags=S.flags.filter(f=>f.id!==id);persist();toast('Entry deleted');break;
   case 'editFlag':{const f=S.flags.find(x=>x.id===id);if(!f)return;
     ui.modal={type:'flag',id:f.id,kind:f.kind,customer:f.customer||'',rider:f.rider||'',item:f.item||'',reason:f.reason||'',note:f.note||''};break;}
