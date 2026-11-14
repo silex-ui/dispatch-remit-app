@@ -848,6 +848,7 @@ const dayLedger=(rider,date)=>S.ledger.filter(e=>e.rider===rider&&e.date===date)
 const UNPOST_WINDOW_MS=5*24*60*60*1000;
 const dayPosted=(rider,date)=>{const r=getRiderDay(rider,date);return !!(r&&r.posted)};
 function leavesBookings(t){
+  if(t.carried&&(t.remitted===true||t.status==='disreg'))return true;
   if(!dayPosted(t.rider,t.date))return false;
   return t.remitted===true||t.status==='disreg';
 }
@@ -860,19 +861,36 @@ function whyStays(t){
   if(t.remitted!==true)return 'the day was posted, but this transaction is not marked as remitted.';
   return '';
 }
-/* Online money (GCash/Bank/NYP, and the online part of a Split) is advanced to the
-   rider by management when the Owner posts the day, whether or not the customer
-   has paid yet — so every such transaction on a posted day counts as remitted.
-   This brings older posted days in line (it only sets the remitted flag). */
+/* Keeps the "remitted" marks honest. Two situations it repairs, setting only
+   the remitted mark (no amounts, no deletions):
+   1. A posted day whose counted transactions are not marked remitted (days
+      posted by an older version, or marks lost along the way). Online money
+      (GCash/Bank/NYP, online part of a Split) counts the moment the Owner
+      posts, paid or not, because management advances it to the rider.
+   2. Carry-forward: once a rider's LATER day is posted, anything of theirs on
+      an earlier day that has no posted record of its own is treated as settled
+      too ("carried"), so old days can never pile up in Bookings history again.
+      Unposting a day never touches carried marks. */
 function repairRemits(){
   let changed=false;
+  const latest={};
+  Object.keys(S.riderDays).forEach(k=>{
+    const rec=S.riderDays[k];if(!rec||!rec.posted)return;
+    const i=k.lastIndexOf('__'),r=k.slice(0,i),d=k.slice(i+2);
+    if(!latest[r]||d>latest[r])latest[r]=d;
+  });
   S.transactions.forEach(t=>{
-    if(t.status==='disreg'||t.mop==='cash'||t.remitted===true)return;
+    const counts=t.status==='disreg'||effectiveConfirmed(t);
+    if(!counts)return;
     const rec=getRiderDay(t.rider,t.date);
-    if(!rec||!rec.posted)return;
-    if(rec.postedAt&&t.ts>rec.postedAt)return;
-    t.remitted=true;changed=true;
-    if(Array.isArray(rec.remittedIds)&&rec.remittedIds.indexOf(t.id)<0)rec.remittedIds=rec.remittedIds.concat(t.id);
+    if(rec&&rec.posted){
+      if(t.status==='disreg'||t.remitted===true)return;
+      if(rec.postedAt&&t.ts>rec.postedAt)return;
+      t.remitted=true;changed=true;
+      if(Array.isArray(rec.remittedIds)&&rec.remittedIds.indexOf(t.id)<0)rec.remittedIds=rec.remittedIds.concat(t.id);
+    }else if(latest[t.rider]&&t.date<latest[t.rider]&&!t.carried){
+      t.carried=true;if(t.status!=='disreg')t.remitted=true;changed=true;
+    }
   });
   return changed;
 }
