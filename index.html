@@ -900,10 +900,32 @@ function calcFromTx(t){
   c.other=r.other?String(r.other):'';c.otherNote=r.otherNote||'';
   return c;
 }
-function daySummary(rider,date){
+/* Initial budget for a rider's day.
+   - A figure that is actually on record for the day (seeded when the previous
+     day was POSTED, or typed in by hand) always rules.
+   - Otherwise, while the previous day is not yet posted, yesterday's live
+     "total rider fund" is used automatically as a TENTATIVE initial budget.
+     Nothing is stored for it: it follows yesterday until yesterday is posted
+     (or someone saves a figure), at which point the posted amount takes over. */
+function initialBudgetInfo(rider,date,depth){
+  depth=depth||0;
   const rec=getRiderDay(rider,date);
-  const prior=getRiderDay(rider,shiftDate(date,-1));
-  const initialBudget=rec?num(rec.initialBudget):(prior&&prior.posted?prior.closingFund:0);
+  const prevDate=shiftDate(date,-1);
+  const prior=getRiderDay(rider,prevDate);
+  const stored=rec&&rec.initialBudget!=null&&rec.initialBudget!=='';
+  /* a stored figure that is only the leftover seed of a day that has since been unposted is still tentative */
+  const staleSeed=stored&&!rec.posted&&prior&&!prior.posted&&prior.closingFundWas!=null&&num(rec.initialBudget)===num(prior.closingFundWas);
+  if(stored&&!staleSeed)return{amount:num(rec.initialBudget),tentative:false};
+  if(prior&&prior.posted&&!stored)return{amount:num(prior.closingFund),tentative:false};
+  if(depth>=31)return{amount:0,tentative:false};
+  const ps=daySummary(rider,prevDate,depth+1);
+  const had=!!prior||ps.totalRiderFund!==0||dayTxns(rider,prevDate).length>0||dayLedger(rider,prevDate).length>0;
+  return had?{amount:ps.totalRiderFund,tentative:true,from:prevDate}:{amount:0,tentative:false};
+}
+function daySummary(rider,date,depth){
+  const rec=getRiderDay(rider,date);
+  const ib=initialBudgetInfo(rider,date,depth||0);
+  const initialBudget=ib.amount;
   const txs=dayTxns(rider,date),confirmedTxs=txs.filter(effectiveConfirmed);
   const led=dayLedger(rider,date);
   const totalFund=led.filter(e=>e.type==='fund').reduce((s,e)=>s+e.amount,0);
@@ -917,7 +939,7 @@ function daySummary(rider,date){
   const onlineDue=t=>t.mop==='cash'?0:t.mop==='split'?Math.max(0,t.r.total-(t.splitCash||0)):t.r.total;
   const onlineRefund=txs.reduce((s,t)=>s+onlineDue(t),0);
   const totalRiderFund=initialBudget+totalFund+deductions+managementShare-onlineRefund-onlineTip;
-  return{rec,posted:!!(rec&&rec.posted),ibLocked:!!(rec&&rec.ibLocked),initialBudget,totalFund,deductions,riderEarnings,onlineTip,managementShare,onlineRefund,totalRiderFund};
+  return{rec,posted:!!(rec&&rec.posted),ibLocked:!!(rec&&rec.ibLocked),initialBudget,ibTentative:ib.tentative,ibFrom:ib.from,totalFund,deductions,riderEarnings,onlineTip,managementShare,onlineRefund,totalRiderFund};
 }
 
 /* ---------- views ---------- */
@@ -1250,6 +1272,7 @@ function vDailySummary(riderName){
   ${sum.ibLocked&&me.role!=='owner'?'<p class="hint">🔒 Locked by Owner — amount cannot be changed.</p>':''}
   ${canEdit&&!sum.posted&&(me.role==='owner'||!sum.ibLocked)?`<div class="grid2"><input type="number" inputmode="decimal" step="any" data-b="ui.ibF" value="${esc(ibVal)}"><button class="btn" data-a="saveInitBudget" data-rider="${esc(riderName)}">Save</button></div>`
     :`<p class="hint num">${peso(sum.initialBudget)}${sum.posted?' (locked — day has been posted)':''}</p>`}
+  ${sum.ibTentative?`<p class="hint">Tentative — taken automatically from ${esc(riderName)}'s total rider fund on ${fmtDate(sum.ibFrom)}, which has not been posted yet. Once that day is posted, the posted amount takes over.</p>`:''}
   </div>
   <div class="stats">
    ${stat('Total fund',sum.totalFund)}
@@ -1261,8 +1284,8 @@ function vDailySummary(riderName){
    ${stat('Total rider fund',sum.totalRiderFund,'Initial budget + Total fund + Deductions + Management share − Total online refund − Online tip','wide hl')}
   </div>
   ${ca>0?`<div class="stats"><div class="stat wide"><small>Cash advance balance</small><b>${peso(ca)}</b><span class="dsub">Still owed from a cash advance — repaid through deductions, not included in Total Rider Fund</span></div></div>`:''}
-  ${canEdit?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:''}
-  ${canEdit&&sum.posted?unpostBlock(riderName,d):''}
+  ${me.role==='owner'?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:(canEdit&&!sum.posted?'<p class="hint">Only the Owner can post a day.</p>':'')}
+  ${me.role==='owner'&&sum.posted?unpostBlock(riderName,d):''}
   <button class="btn blue" style="margin-top:8px" data-a="downloadRemitImage" data-rider="${esc(riderName)}">Download summary (.jpeg)</button>
   </section>`;
 }
@@ -2138,7 +2161,7 @@ function act(a,el,ev){
     const rObj=S.settings.riders.find(r=>r.name===rider);
     if(rObj){rObj.cashAdvance=Math.max(0,num(ui.caF!=null?ui.caF:0))}
     ui.caF=null;persist();toast('Cash advance balance saved');break;}
-  case 'postDay':{const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
+  case 'postDay':{if(me.role!=='owner')return;const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
     const sum=daySummary(rider,date);
     const prevRec=S.riderDays[key]||{};
     const remitList=dayTxns(rider,date).filter(effectiveConfirmed);
@@ -2159,13 +2182,13 @@ function act(a,el,ev){
     ui.sumDate=shiftDate(date,1);ui.ibF=null;
     ui.fundF.date=ui.sumDate;ui.dedF.date=ui.sumDate;ui.tipF.date=ui.sumDate;
     persist();toast('Day posted — remit marked as settled, next day started');break;}
-  case 'unpostAsk':{if(me.role==='rider')return;const rider=el.dataset.rider,date=ui.sumDate;
+  case 'unpostAsk':{if(me.role!=='owner')return;const rider=el.dataset.rider,date=ui.sumDate;
     const st=unpostStatus(rider,date);
     if(!st.ok){toast(unpostWhyNot(st));return}
     const rec=getRiderDay(rider,date);
     const n=(Array.isArray(rec.remittedIds)?S.transactions.filter(t=>rec.remittedIds.indexOf(t.id)>=0):dayTxns(rider,date).filter(effectiveConfirmed)).length;
     ui.modal={type:'confirm',title:'Unpost this day?',msg:rider+'\'s remit for '+fmtDate(date)+' will reopen for editing, and '+n+' transaction'+(n===1?'':'s')+' will come back to the Bookings transaction history so they can be corrected. Nothing is deleted, and you can post the day again afterward.',yes:'unpostYes',id:'',yesLabel:'Yes, unpost',yesCls:'orange',noLabel:'Cancel',rider,date};break;}
-  case 'unpostYes':{const m=ui.modal;if(!m||me.role==='rider')return;
+  case 'unpostYes':{const m=ui.modal;if(!m||me.role!=='owner')return;
     const rider=m.rider,date=m.date,key=rdKey(rider,date);
     const st=unpostStatus(rider,date);
     if(!st.ok){closeModal();toast(unpostWhyNot(st));return}
