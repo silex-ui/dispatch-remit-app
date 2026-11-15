@@ -172,6 +172,14 @@ textarea{resize:vertical}
 .dtable.freeze th:nth-child(1),.dtable.freeze td:nth-child(1){left:0;min-width:40px;width:40px}
 .dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:40px;min-width:104px;width:104px}
 .dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:144px;max-width:170px;overflow:hidden;text-overflow:ellipsis;box-shadow:3px 0 4px -2px rgba(0,0,0,.18)}
+.dtable .dshort{display:none}
+@media (max-width:640px){
+  .dtable.freeze .dfull{display:none}
+  .dtable.freeze .dshort{display:inline}
+  .dtable.freeze th:nth-child(1),.dtable.freeze td:nth-child(1){min-width:34px;width:34px;padding-left:6px;padding-right:2px}
+  .dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:34px;min-width:50px;width:50px;padding-left:4px;padding-right:4px}
+  .dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:84px;min-width:84px;max-width:96px;width:96px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:.78rem;padding-left:6px;padding-right:6px;word-break:break-word}
+}
 .dtable td.notes-cell{white-space:normal;max-width:220px;min-width:140px}
 .empty-inline{color:var(--muted)}
 .bigchk{width:20px;height:20px;cursor:pointer}
@@ -1407,7 +1415,7 @@ function vPaymentStatus(){
   const allSel=list.length>0&&selCount===list.length;
   const row=t=>{const bal=balanceOf(t);return `<tr class="${t.status==='disreg'?'disreg-row':''}">
     <td>${canDelete?`<input type="checkbox" class="bigchk" data-a="selPay" data-id="${t.id}" ${ui.selPay[t.id]?'checked':''} aria-label="Select">`:''}</td>
-    <td>${fmtDate(t.date)}</td>
+    <td><span class="dfull">${fmtDate(t.date)}</span><span class="dshort">${fmtDate(t.date).replace(/,\s*\d{4}$/,'')}</span></td>
     <td>${esc(t.customer)}</td>
     <td>${esc(t.rider)}</td>
     <td class="num">${peso(t.r.total)}</td>
