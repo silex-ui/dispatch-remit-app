@@ -1073,7 +1073,7 @@ function vShell(){
   else if(view==='settings')body=vSettings();
   const lockBanner=S.settings.syncLocked?`<p class="err" role="alert" style="margin:0 0 10px">⏸ Syncing is paused by the Owner while fixing a device mismatch. Anything you do here still saves on this device and will go out automatically once syncing resumes — nothing is lost.</p>`:'';
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
-  <div class="hb"><span id="syncBadge" class="sbwrap">${vSyncBadge()}</span>${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${(me.role==='owner'||me.role==='admin')&&view!=='flags'?vFlagsBanner():''}${body}`;
+  <div class="hb"><span id="syncBadge" class="sbwrap">${vSyncBadge()}</span>${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${(me.role==='owner'||me.role==='admin')&&view==='dash'?vFlagsBanner():''}${body}`;
 }
 
 function vDash(){
