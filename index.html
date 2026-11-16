@@ -1034,7 +1034,7 @@ function vShell(){
   else if(view==='settings')body=vSettings();
   const lockBanner=S.settings.syncLocked?`<p class="err" role="alert" style="margin:0 0 10px">⏸ Syncing is paused by the Owner while fixing a device mismatch. Anything you do here still saves on this device and will go out automatically once syncing resumes — nothing is lost.</p>`:'';
   return `<header class="top"><div><strong>Dispatch &amp; Remit</strong><span class="role">${esc(roleTxt)}</span></div>
-  <div class="hb"><span id="syncBadge" class="sbwrap">${vSyncBadge()}</span>${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${body}`;
+  <div class="hb"><span id="syncBadge" class="sbwrap">${vSyncBadge()}</span>${view!=='dash'?'<button class="btn ghost" data-a="nav" data-v="dash">Menu</button>':''}<button class="btn ghost" data-a="logout">Log out</button></div></header>${lockBanner}${(me.role==='owner'||me.role==='admin')&&view!=='flags'?vFlagsBanner():''}${body}`;
 }
 
 function vDash(){
@@ -1045,7 +1045,7 @@ function vDash(){
   if(me.role==='owner')items.push(['report','Earnings report','Management & rider earnings and bookings by date']);
   if(me.role==='owner'||me.role==='admin')items.push(['flags','Flags & Notes','Blocked customers, rider restrictions and reminders']);
   if(me.role==='owner')items.push(['settings','Settings','PINs, riders and rider share']);
-  return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>${(me.role==='owner'||me.role==='admin')?vFlagsBanner():''}`;
+  return `<nav class="dash" aria-label="Main menu">${items.map(i=>`<button class="dbtn" data-a="nav" data-v="${i[0]}"><strong>${i[1]}</strong>${arrow}<span>${i[2]}</span></button>`).join('')}</nav>`;
 }
 
 function vFlagsBanner(){
@@ -1056,7 +1056,7 @@ function vFlagsBanner(){
   const notes=fl.filter(f=>f.kind==='note');
   if(!fl.length)return'';
   const line=(main,sub)=>`<li><strong>${esc(main)}</strong>${sub?` — ${esc(sub)}`:''}</li>`;
-  return `<section class="card flagbanner" style="margin-top:14px;border-color:var(--red)">
+  return `<section class="card flagbanner" style="margin:0 0 12px;border-color:var(--red)">
   <h3 style="color:var(--red)">&#9888; Flags &amp; Notes</h3>
   ${blocks.length?`<p class="hint" style="margin:6px 0 2px">Blocked / account-frozen customers</p><ul class="flaglist">${blocks.map(f=>line(f.customer,f.reason)).join('')}</ul>`:''}
   ${riderBlocks.length?`<p class="hint" style="margin:6px 0 2px">Customers not allowed for specific riders</p><ul class="flaglist">${riderBlocks.map(f=>line(`${f.customer} → not ${f.rider}`,f.reason)).join('')}</ul>`:''}
