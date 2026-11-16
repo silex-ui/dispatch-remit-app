@@ -173,6 +173,9 @@ textarea{resize:vertical}
 .dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:40px;min-width:104px;width:104px}
 .dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:144px;max-width:170px;overflow:hidden;text-overflow:ellipsis;box-shadow:3px 0 4px -2px rgba(0,0,0,.18)}
 .dup{background:#FFE45C;color:#141C26;border-radius:5px;padding:0 5px;cursor:pointer;box-shadow:0 0 0 1px #E0BE00}
+@keyframes rpulse{0%,100%{box-shadow:0 0 0 0 rgba(30,160,90,.55)}50%{box-shadow:0 0 0 6px rgba(30,160,90,0)}}
+.btn.pulse{animation:rpulse 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.btn.pulse{animation:none}}
 .rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;align-items:center}
 .rmopbox{margin-top:8px;padding:8px 10px;border:1.5px dashed var(--line);border-radius:10px}
 .rmopbox p{margin:0 0 6px;font-size:.85rem}
@@ -1333,7 +1336,7 @@ function vDailySummary(riderName){
   const fundEntries=list.filter(e=>e.type==='fund');
   const tipList=tipEntriesCombined(riderName);
   const recvChip=e=>e.recv==='yes'?'<span class="chip paid" style="margin-left:4px">Received</span>':(e.recv==='no'?'<span class="chip nyp" style="margin-left:4px">Not received</span>':'');
-  const recvBtns=e=>(me.role==='rider'&&e.type==='fund'&&e.rider===me.rider)?`<div class="rbtns"><button class="btn ${e.recv==='yes'?'green':'ghost'} sm" data-a="fundRecv" data-id="${e.id}" data-v="yes" aria-pressed="${e.recv==='yes'}">Received</button><button class="btn ${e.recv==='no'?'red':'ghost'} sm" data-a="fundRecv" data-id="${e.id}" data-v="no" aria-pressed="${e.recv==='no'}">Not received</button></div>`:'';
+  const recvBtns=e=>(me.role==='rider'&&e.type==='fund'&&e.rider===me.rider)?`<div class="rbtns"><button class="btn green sm ${e.recv?'':'pulse'}" data-a="fundRecv" data-id="${e.id}" data-v="yes" aria-pressed="${e.recv==='yes'}" ${e.recv==='no'?'style="opacity:.75"':''}>${e.recv==='yes'?'&#10003; Received':'Received'}</button><button class="btn ${e.recv==='no'?'red':'ghost'} sm" data-a="fundRecv" data-id="${e.id}" data-v="no" aria-pressed="${e.recv==='no'}">Not received</button></div>`:'';
   const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}${me.role==='rider'?'':(e.type==='fund'?recvChip(e):'')}${recvBtns(e)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card">
