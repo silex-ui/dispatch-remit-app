@@ -777,7 +777,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   report:{from:today(),to:today()},
   bad:{date:today(),amount:'',reason:'',err:''},
   rmop:{id:null,note:'',kind:'bad'},
-  pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
+  pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{},dupOnly:false},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
   diag:null};
@@ -919,11 +919,20 @@ function repairRemits(){
 const dupKey=t=>t.date+'|'+String(t.customer||'').trim().toLowerCase().replace(/\s+/g,' ');
 function dupCounts(){const m={};S.transactions.forEach(t=>{if(t.status==='disreg')return;const k=dupKey(t);m[k]=(m[k]||0)+1});return m}
 let _dupC=null;
+function dupPending(t){
+  if(t.status==='disreg')return false;
+  if(!_dupC)_dupC=dupCounts();
+  const k=dupKey(t),n=_dupC[k]||0;
+  return n>1&&n>((S.dupOk&&S.dupOk[k])||0);
+}
 function dupName(t,inner){
   if(!me||me.role==='rider'||t.status==='disreg')return inner;
   if(!_dupC)_dupC=dupCounts();
   const k=dupKey(t),n=_dupC[k]||0;
-  if(n>1&&n>((S.dupOk&&S.dupOk[k])||0))return `<span class="dup" role="button" tabindex="0" data-a="dupOk" data-k="${esc(k)}" title="This name appears ${n} times on this date. Tap once you have checked they are separate bookings, not a double save.">${inner}</span>`;
+  if(n>1&&n>((S.dupOk&&S.dupOk[k])||0)){
+    if(me.role==='owner')return `<span class="dup" role="button" tabindex="0" data-a="dupOk" data-k="${esc(k)}" title="This name appears ${n} times on this date. Tap once you have checked they are separate bookings, not a double save.">${inner}</span>`;
+    return `<span class="dup" style="cursor:default" title="This name appears ${n} times on this date. Only the Owner can clear this highlight after checking.">${inner}</span>`;
+  }
   return inner;
 }
 /* what the rider reported about a transaction's mode of payment */
@@ -1447,8 +1456,9 @@ function payList(){
     (f.rider==='all'||t.rider===f.rider)&&
     (!q||t.customer.toLowerCase().includes(q))&&
     (!nq||(t.notes||'').toLowerCase().includes(nq))&&
-    (!anyStatus||f.statusSel[t.status])
-  ).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
+    (!anyStatus||f.statusSel[t.status])&&
+    (!f.dupOnly||dupPending(t))
+  ).sort((a,b)=>b.date.localeCompare(a.date)||(f.dupOnly?dupKey(a).localeCompare(dupKey(b)):0)||b.ts-a.ts);
 }
 function vPaymentStatus(){
   const f=ui.pay,list=payList(),canDelete=me.role==='owner';
@@ -1480,7 +1490,7 @@ function vPaymentStatus(){
    <label class="f">To<input type="date" data-b="pay.to" data-rr="1" value="${f.to}"></label>`:''}
   </div>
   <div class="f" style="margin-top:4px"><span>Status</span>
-   <div class="statusfilter">${Object.keys(STATUS_LABEL).map(k=>`<label class="ck"><input type="checkbox" class="bigchk" data-a="togPayStatus" data-k="${k}" ${f.statusSel[k]?'checked':''}> ${STATUS_LABEL[k]}</label>`).join('')}</div>
+   <div class="statusfilter">${Object.keys(STATUS_LABEL).map(k=>`<label class="ck"><input type="checkbox" class="bigchk" data-a="togPayStatus" data-k="${k}" ${f.statusSel[k]?'checked':''}> ${STATUS_LABEL[k]}</label>`).join('')}<label class="ck"><input type="checkbox" class="bigchk" data-a="togDupOnly" ${f.dupOnly?'checked':''}> <span class="dup" style="cursor:inherit">Double entries (${S.transactions.filter(dupPending).length})</span></label></div>
   </div>
   <div class="tools" style="margin-top:10px">
    <button class="btn green" data-a="addPayNew">+ Add record</button>
@@ -2200,6 +2210,7 @@ function act(a,el,ev){
   case 'delSelTxYes':S.transactions=S.transactions.filter(t=>!ui.selTx[t.id]);ui.selTx={};persist();closeModal();toast('Selected transactions deleted');break;
 
   /* payment status */
+  case 'togDupOnly':ui.pay.dupOnly=!ui.pay.dupOnly;break;
   case 'togPayStatus':ui.pay.statusSel[k]=!ui.pay.statusSel[k];break;
   case 'addPayNew':ui.modal={type:'addPay',date:today(),amount:'',customer:'',rider:'',riderManual:false,
     mop:'cash',account:'',received:'0',splitCash:'0',splitOnline:'0',status:'verified',notes:''};break;
@@ -2345,7 +2356,7 @@ function act(a,el,ev){
     if(!reason){f.err='Enter the reason for this bad order.';break}
     S.badOrders.push({id:uid(),ts:Date.now(),date:f.date,amount:amt,reason,by:me.role});
     persist();ui.bad={date:f.date,amount:'',reason:'',err:''};toast('Bad order added');break;}
-  case 'dupOk':{if(me.role==='rider')return;const n=dupCounts()[k]||0;S.dupOk[k]=n;persist();toast('Marked as checked — highlight removed');break;}
+  case 'dupOk':{if(me.role!=='owner')return;const n=dupCounts()[k]||0;S.dupOk[k]=n;persist();toast('Marked as checked — highlight removed');break;}
   case 'fundRecv':{if(me.role!=='rider')return;const e=S.ledger.find(x=>x.id===id);if(!e||e.type!=='fund'||e.rider!==me.rider)return;
     e.recv=(e.recv===v)?undefined:v;if(e.recv===undefined)delete e.recv;e.recvTs=Date.now();persist();toast(e.recv==='yes'?'Marked as received':e.recv==='no'?'Marked as not received — tell the admin':'Cleared');break;}
   case 'rmopOk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
