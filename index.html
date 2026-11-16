@@ -172,6 +172,10 @@ textarea{resize:vertical}
 .dtable.freeze th:nth-child(1),.dtable.freeze td:nth-child(1){left:0;min-width:40px;width:40px}
 .dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:40px;min-width:104px;width:104px}
 .dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:144px;max-width:170px;overflow:hidden;text-overflow:ellipsis;box-shadow:3px 0 4px -2px rgba(0,0,0,.18)}
+.dup{background:#FFE45C;color:#141C26;border-radius:5px;padding:0 5px;cursor:pointer;box-shadow:0 0 0 1px #E0BE00}
+.rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;align-items:center}
+.rmopbox{margin-top:8px;padding:8px 10px;border:1.5px dashed var(--line);border-radius:10px}
+.rmopbox p{margin:0 0 6px;font-size:.85rem}
 .dtable .dshort{display:none}
 @media (max-width:640px){
   .dtable.freeze .dfull{display:none}
@@ -265,7 +269,7 @@ const KEY='delivery_dispatch_remit_v1';
    Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
 const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
 const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
-const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[],badOrders:[]});
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[],badOrders:[],dupOk:{}});
 function normalize(s){
   if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
@@ -273,6 +277,7 @@ function normalize(s){
   s.riderDays=s.riderDays||{};
   s.flags=s.flags||[];
   s.badOrders=s.badOrders||[];
+  s.dupOk=s.dupOk||{};
   (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0;if(!r.token)r.token=genToken()});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   if(s.settings.syncLocked==null)s.settings.syncLocked=false;
@@ -461,14 +466,15 @@ function mergeState(base,local,remote){
     ledger:mergeArrayById(base.ledger,local.ledger,remote.ledger),
     riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays),
     flags:mergeArrayById(base.flags,local.flags,remote.flags),
-    badOrders:mergeArrayById(base.badOrders,local.badOrders,remote.badOrders)
+    badOrders:mergeArrayById(base.badOrders,local.badOrders,remote.badOrders),
+    dupOk:mergeMap(base.dupOk,local.dupOk,remote.dupOk)
   };
   // Safety net: if either side has a top-level field this version of the
   // code doesn't explicitly know how to merge yet (e.g. a device still
   // running slightly older code than the one that just added a new
   // feature), carry it over instead of silently dropping it. Local wins
   // when both have it, since it's the most recently touched copy.
-  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags','badOrders']);
+  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags','badOrders','dupOk']);
   [local,remote].forEach(src=>{
     Object.keys(src).forEach(k=>{
       if(!known.has(k)&&!(k in out))out[k]=src[k];
@@ -770,6 +776,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
   bad:{date:today(),amount:'',reason:'',err:''},
+  rmop:{id:null,note:''},
   pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
@@ -907,6 +914,25 @@ function repairRemits(){
     }
   });
   return changed;
+}
+/* ---------- same name twice on the same date ---------- */
+const dupKey=t=>t.date+'|'+String(t.customer||'').trim().toLowerCase().replace(/\s+/g,' ');
+function dupCounts(){const m={};S.transactions.forEach(t=>{if(t.status==='disreg')return;const k=dupKey(t);m[k]=(m[k]||0)+1});return m}
+let _dupC=null;
+function dupName(t,inner){
+  if(!me||me.role==='rider'||t.status==='disreg')return inner;
+  if(!_dupC)_dupC=dupCounts();
+  const k=dupKey(t),n=_dupC[k]||0;
+  if(n>1&&n>((S.dupOk&&S.dupOk[k])||0))return `<span class="dup" role="button" tabindex="0" data-a="dupOk" data-k="${esc(k)}" title="This name appears ${n} times on this date. Tap once you have checked they are separate bookings, not a double save.">${inner}</span>`;
+  return inner;
+}
+/* what the rider reported about a transaction's mode of payment */
+function rmopBadge(t){
+  const r=t.rmop;if(!r)return '';
+  if(r.state==='ok')return '<span class="chip paid" style="margin-left:4px">Rider confirmed MOP</span>';
+  if(r.state==='bad')return `<div class="hint" style="margin:4px 0 0;color:var(--red);font-weight:600">&#9888; Rider says the MOP is not correct: ${esc(r.note||'(no note)')}</div>`;
+  if(r.state==='changed')return `<div class="hint" style="margin:4px 0 0;color:var(--red);font-weight:600">&#9888; Rider changed MOP: ${esc(r.from)} &rarr; ${esc(r.to)}${r.note?' — '+esc(r.note):''}</div>`;
+  return '';
 }
 const txLocked=t=>dayPosted(t.rider,t.date)&&t.remitted===true;
 /* Days posted before the app recorded WHEN have no timestamp; treat them as
@@ -1237,8 +1263,8 @@ function vHistory(){
   return `<section class="card"><h2>Transaction history${S.transactions.length?`<button class="btn ghost" data-a="historyCsv">Download history (.csv)</button>`:''}</h2>
   <p class="hint">Every transaction stays here until its rider's day is posted on the Rider Remit dashboard. Once posted and remitted it leaves this list — but it always stays on the Payment Status dashboard, and nothing is ever deleted. Unposting a day (within 5 days) brings its transactions back here so you can correct them.</p>
   ${canEdit&&list.length?`<div class="ck" style="justify-content:space-between"><label class="ck"><input type="checkbox" data-a="selAllTx" ${allSel?'checked':''}> Select all</label>${selCount?`<button class="btn red" data-a="delSelTx">Delete selected (${selCount})</button>`:''}</div>`:''}
-  ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${esc(t.customer)}</strong>
-  <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div>${(()=>{const w=whyStays(t);return w?`<div class="hint" style="margin:4px 0 0">Still here: ${esc(w)}</div>`:''})()}</div></div>
+  ${list.length?`<ul class="hist">${list.map(t=>{const bal=balanceOf(t);return `<li class="tx ${t.status==='disreg'?'disreg-row':''}"><div class="txh"><div style="display:flex;gap:8px;align-items:flex-start">${canEdit?`<input type="checkbox" data-a="selTx" data-id="${t.id}" ${ui.selTx[t.id]?'checked':''} aria-label="Select transaction" style="margin-top:3px;width:18px;height:18px;min-height:0;flex:none">`:''}<div><strong>${dupName(t,esc(t.customer))}</strong>
+  <div class="meta"><span class="chip" style="background:var(--muted);color:var(--on);padding:1px 10px;min-height:0">Booking #${bc[t.id]}</span><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span></div>${(()=>{const w=whyStays(t);return w?`<div class="hint" style="margin:4px 0 0">Still here: ${esc(w)}</div>`:''})()}${rmopBadge(t)}</div></div>
   <div class="amts"><b>${peso(t.r.total)}</b></div></div>
   <div class="pd"><span>${mopLabel(t)}</span><span>Received <b>${peso(t.received||0)}</b></span>${bal>0?`<span>Balance <b>${peso(bal)}</b></span>`:''}${t.tip?`<span>Tip <b>${peso(t.tip)}</b></span>`:''}</div>
   <div class="tools"><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span>
@@ -1296,7 +1322,9 @@ function vDailySummary(riderName){
   const{list}=ledgerTotals(riderName);
   const fundEntries=list.filter(e=>e.type==='fund');
   const tipList=tipEntriesCombined(riderName);
-  const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
+  const recvChip=e=>e.recv==='yes'?'<span class="chip paid" style="margin-left:4px">Received</span>':(e.recv==='no'?'<span class="chip nyp" style="margin-left:4px">Not received</span>':'');
+  const recvBtns=e=>(me.role==='rider'&&e.type==='fund'&&e.rider===me.rider)?`<div class="rbtns"><button class="btn ${e.recv==='yes'?'green':'ghost'} sm" data-a="fundRecv" data-id="${e.id}" data-v="yes" aria-pressed="${e.recv==='yes'}">Received</button><button class="btn ${e.recv==='no'?'red':'ghost'} sm" data-a="fundRecv" data-id="${e.id}" data-v="no" aria-pressed="${e.recv==='no'}">Not received</button></div>`:'';
+  const entryRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.note)}${me.role==='rider'?'':(e.type==='fund'?recvChip(e):'')}${recvBtns(e)}</div><b class="num" style="color:${e.amount<0?'var(--red)':'var(--green)'}">${e.amount<0?'&minus;':'+'}${peso(Math.abs(e.amount))}</b>${canEdit?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   const tipRow=e=>`<div class="rowr"><div><span>${fmtDate(e.date)}</span> &mdash; ${esc(e.label)}</div><b class="num" style="color:var(--green)">+${peso(e.amount)}</b>${canEdit&&e.kind==='ledger'?`<button class="rm" data-a="delLedger" data-id="${e.id}" aria-label="Delete entry">&times;</button>`:''}</div>`;
   return `<section class="card">
   <h2>Daily rider summary</h2>
@@ -1385,8 +1413,21 @@ function vRemit(){
   <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${simpleMop}</span></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
   <div class="pd"><span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
-  ${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet remitted</span>':'')}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
+  ${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet remitted</span>':'')}${me.role==='rider'?riderMopBlock(t):rmopBadge(t)}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
   ${vLedgerCard(riderSel)}`;
+}
+
+function riderMopBlock(t){
+  const r=t.rmop,locked=t.remitted===true&&dayPosted(t.rider,t.date);
+  const mopTxt=t.mop==='cash'?'Cash':t.mop==='split'?'Split (cash + online)':'Online';
+  const other=t.mop==='cash'?'Online':'Cash';
+  if(ui.rmop.id===t.id)return `<div class="rmopbox"><p><b>Tell the admin what is wrong</b> with the mode of payment (${mopTxt}).</p>
+   <label class="f"><textarea rows="2" data-b="ui.rmop.note" placeholder="e.g. customer paid cash, not GCash">${esc(ui.rmop.note)}</textarea></label>
+   <div class="rbtns"><button class="btn red sm" data-a="rmopBadSend" data-id="${t.id}">Send to admin</button><button class="btn ghost sm" data-a="rmopCancel">Cancel</button></div></div>`;
+  if(locked)return r?rmopBadge(t):'';
+  if(!r)return `<div class="rmopbox"><p>Mode of payment saved by admin: <b>${mopTxt}</b>. Is this correct?</p>
+   <div class="rbtns"><button class="btn green sm" data-a="rmopOk" data-id="${t.id}">Yes, correct</button><button class="btn red sm" data-a="rmopBadAsk" data-id="${t.id}">Not correct</button>${t.mop==='split'?'':`<button class="btn ghost sm" data-a="rmopChgAsk" data-id="${t.id}">Change to ${other}</button>`}</div></div>`;
+  return `<div class="rmopbox">${rmopBadge(t)}<div class="rbtns"><button class="btn ghost sm" data-a="rmopUndo" data-id="${t.id}">Undo / review again</button></div></div>`;
 }
 
 /* payment status */
@@ -1416,14 +1457,14 @@ function vPaymentStatus(){
   const row=t=>{const bal=balanceOf(t);return `<tr class="${t.status==='disreg'?'disreg-row':''}">
     <td>${canDelete?`<input type="checkbox" class="bigchk" data-a="selPay" data-id="${t.id}" ${ui.selPay[t.id]?'checked':''} aria-label="Select">`:''}</td>
     <td><span class="dfull">${fmtDate(t.date)}</span><span class="dshort">${fmtDate(t.date).replace(/,\s*\d{4}$/,'')}</span></td>
-    <td>${esc(t.customer)}</td>
+    <td>${dupName(t,esc(t.customer))}</td>
     <td>${esc(t.rider)}</td>
     <td class="num">${peso(t.r.total)}</td>
     <td class="num">${peso(t.received||0)}</td>
     <td class="num" style="${bal>0?'color:var(--red);font-weight:700':''}">${peso(bal)}</td>
     <td>${t.mop==='split'?'Split':(MOP_LABEL[t.mop]||cap(t.mop))}</td>
     <td>${t.mop!=='cash'&&t.account?acctLabel(t.account):'&mdash;'}</td>
-    <td class="notes-cell">${t.notes?esc(t.notes):'<span class="empty-inline">&mdash;</span>'}</td>
+    <td class="notes-cell">${rmopBadge(t)}${t.notes?esc(t.notes):(t.rmop&&t.rmop.state!=='ok'?'':'<span class="empty-inline">&mdash;</span>')}</td>
     <td><span class="chip ${t.status}">${STATUS_LABEL[t.status]}</span></td>
     <td><button class="link" data-a="editPay" data-id="${t.id}">Update</button></td>
   </tr>`};
@@ -1864,6 +1905,7 @@ function renderKey(){
 const appCtls=()=>Array.from(document.querySelectorAll('#app input,#app select,#app textarea'));
 function userBusy(){return !safeToRefresh()||Date.now()-lastInteract<1500}
 function render(opts){
+  _dupC=null;
   if(me&&repairRemits())persist();
   const app=$('#app'),key=renderKey(),same=key===lastRenderKey,keep=!!(opts&&opts.keep);
   const snap={x:window.scrollX,y:window.scrollY,scrolls:[],vals:[],focus:null};
@@ -2124,10 +2166,10 @@ function act(a,el,ev){
     const status=m.mop==='cash'?'verified':m.status;
     const fields={mop:m.mop,account:(m.mop!=='split'||status==='nyp')?'':m.account,received:recv,splitCash:num(m.splitCash)||0,splitOnline:num(m.splitOnline)||0,status,notes:(m.notes||'').trim()};
     if(excess>0){ui.modal={type:'overpay',excess,yes:'overpayYesEdit',no:'overpayNoEdit',_id:id,_fields:fields,_orig:m};break}
-    Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
+    delete t.rmop;Object.assign(t,fields,{tip:0});if(fields.status!=='paid'&&fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist();closeModal();toast('Payment updated');break;}
   case 'overpayYesEdit':{const m=ui.modal,t=S.transactions.find(x=>x.id===m._id);
     const tip=(m.excess>=1&&m.excess<=300)?m.excess:0;
-    if(t){Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist()}
+    if(t){delete t.rmop;Object.assign(t,m._fields,{tip});if(m._fields.status!=='paid'&&m._fields.status!=='verified'&&t.mop==='cash')t.remitted=false;persist()}
     closeModal();toast('Payment updated'+(tip>0?' — excess added as rider tip':' — excess added to management collection'));break;}
   case 'overpayNoEdit':{const m=ui.modal,orig=m._orig;orig.err='Please recheck the amount received before saving the payment details.';ui.modal=orig;break;}
   case 'editTx':{if(me.role==='rider')return;const t=S.transactions.find(x=>x.id===id);if(!t)return;
@@ -2302,6 +2344,32 @@ function act(a,el,ev){
     if(!reason){f.err='Enter the reason for this bad order.';break}
     S.badOrders.push({id:uid(),ts:Date.now(),date:f.date,amount:amt,reason,by:me.role});
     persist();ui.bad={date:f.date,amount:'',reason:'',err:''};toast('Bad order added');break;}
+  case 'dupOk':{if(me.role==='rider')return;const n=dupCounts()[k]||0;S.dupOk[k]=n;persist();toast('Marked as checked — highlight removed');break;}
+  case 'fundRecv':{if(me.role!=='rider')return;const e=S.ledger.find(x=>x.id===id);if(!e||e.type!=='fund'||e.rider!==me.rider)return;
+    e.recv=(e.recv===v)?undefined:v;if(e.recv===undefined)delete e.recv;e.recvTs=Date.now();persist();toast(e.recv==='yes'?'Marked as received':e.recv==='no'?'Marked as not received — tell the admin':'Cleared');break;}
+  case 'rmopOk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
+    t.rmop={state:'ok',ts:Date.now(),mop:t.mop};persist();toast('Thanks — confirmed');break;}
+  case 'rmopBadAsk':{ui.rmop={id,note:''};break;}
+  case 'rmopCancel':ui.rmop={id:null,note:''};break;
+  case 'rmopBadSend':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
+    const note=(ui.rmop.note||'').trim();if(!note){toast('Write a short note for the admin first');return}
+    t.rmop={state:'bad',note,ts:Date.now(),mop:t.mop};ui.rmop={id:null,note:''};persist();toast('Sent to admin');break;}
+  case 'rmopChgAsk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
+    if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin to change it.');return}
+    const to=t.mop==='cash'?'Online':'Cash';
+    ui.modal={type:'confirm',title:'Change to '+to+'?',msg:t.mop==='cash'?'This will switch the payment from Cash to Online and mark it not yet paid, until the admin checks it.':'This will switch the payment from Online to Cash and mark it as paid in cash (the customer paid you late). The admin will see that you changed it.',yes:'rmopChgYes',id,yesLabel:'Yes, change to '+to,yesCls:'orange',noLabel:'Cancel'};break;}
+  case 'rmopChgYes':{const t=S.transactions.find(x=>x.id===id);closeModal();if(!t||me.role!=='rider'||t.rider!==me.rider||t.mop==='split')return;
+    if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin to change it.');return}
+    const prev={mop:t.mop,account:t.account||'',received:t.received||0,status:t.status,splitCash:t.splitCash||0,splitOnline:t.splitOnline||0,tip:t.tip||0};
+    const from=t.mop==='cash'?'Cash':'Online',to=t.mop==='cash'?'Online':'Cash';
+    if(t.mop==='cash'){t.mop='online';t.status='nyp';t.received=0;t.account='';t.tip=0}
+    else{t.mop='cash';t.status='verified';t.received=t.r.total;t.account='';t.tip=0}
+    t.splitCash=0;t.splitOnline=0;t.remitted=false;
+    t.rmop={state:'changed',from,to,ts:Date.now(),prev,mop:t.mop};persist();toast('Changed to '+to+' — the admin can see it');break;}
+  case 'rmopUndo':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
+    if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin.');return}
+    const r=t.rmop;if(r&&r.state==='changed'&&r.prev&&t.mop===r.mop){Object.assign(t,r.prev)}
+    delete t.rmop;persist();toast('Reset');break;}
   case 'delBad':{if(me.role!=='owner')return;S.badOrders=S.badOrders.filter(b=>b.id!==id);persist();toast('Bad order removed');break;}
   case 'delFlag':S.flags=S.flags.filter(f=>f.id!==id);persist();toast('Entry deleted');break;
   case 'editFlag':{const f=S.flags.find(x=>x.id===id);if(!f)return;
