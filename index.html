@@ -776,7 +776,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
   bad:{date:today(),amount:'',reason:'',err:''},
-  rmop:{id:null,note:''},
+  rmop:{id:null,note:'',kind:'bad'},
   pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{}},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
@@ -931,6 +931,7 @@ function rmopBadge(t){
   const r=t.rmop;if(!r)return '';
   if(r.state==='ok')return '<span class="chip paid" style="margin-left:4px">Rider confirmed MOP</span>';
   if(r.state==='bad')return `<div class="hint" style="margin:4px 0 0;color:var(--red);font-weight:600">&#9888; Rider says the MOP is not correct: ${esc(r.note||'(no note)')}</div>`;
+  if(r.state==='change')return `<div class="hint" style="margin:4px 0 0;color:var(--red);font-weight:600">&#9888; Rider suggests changing the MOP: ${esc(r.from)} &rarr; ${esc(r.to)}${r.note?' — '+esc(r.note):''}</div>`;
   if(r.state==='changed')return `<div class="hint" style="margin:4px 0 0;color:var(--red);font-weight:600">&#9888; Rider changed MOP: ${esc(r.from)} &rarr; ${esc(r.to)}${r.note?' — '+esc(r.note):''}</div>`;
   return '';
 }
@@ -1421,12 +1422,12 @@ function riderMopBlock(t){
   const r=t.rmop,locked=t.remitted===true&&dayPosted(t.rider,t.date);
   const mopTxt=t.mop==='cash'?'Cash':t.mop==='split'?'Split (cash + online)':'Online';
   const other=t.mop==='cash'?'Online':'Cash';
-  if(ui.rmop.id===t.id)return `<div class="rmopbox"><p><b>Tell the admin what is wrong</b> with the mode of payment (${mopTxt}).</p>
-   <label class="f"><textarea rows="2" data-b="ui.rmop.note" placeholder="e.g. customer paid cash, not GCash">${esc(ui.rmop.note)}</textarea></label>
-   <div class="rbtns"><button class="btn red sm" data-a="rmopBadSend" data-id="${t.id}">Send to admin</button><button class="btn ghost sm" data-a="rmopCancel">Cancel</button></div></div>`;
+  if(ui.rmop.id===t.id)return `<div class="rmopbox"><p>${ui.rmop.kind==='change'?`<b>Suggest changing to ${other}.</b> The admin will see your note and decide.`:`<b>Tell the admin what is wrong</b> with the mode of payment (${mopTxt}).`}</p>
+   <label class="f"><textarea rows="2" data-b="ui.rmop.note" placeholder="${ui.rmop.kind==='change'?'e.g. customer paid cash late':'e.g. customer paid cash, not GCash'}">${esc(ui.rmop.note)}</textarea></label>
+   <div class="rbtns"><button class="btn ${ui.rmop.kind==='change'?'orange':'red'} sm" data-a="${ui.rmop.kind==='change'?'rmopChgSend':'rmopBadSend'}" data-id="${t.id}">Send to admin</button><button class="btn ghost sm" data-a="rmopCancel">Cancel</button></div></div>`;
   if(locked)return r?rmopBadge(t):'';
   if(!r)return `<div class="rmopbox"><p>Mode of payment saved by admin: <b>${mopTxt}</b>. Is this correct?</p>
-   <div class="rbtns"><button class="btn green sm" data-a="rmopOk" data-id="${t.id}">Yes, correct</button><button class="btn red sm" data-a="rmopBadAsk" data-id="${t.id}">Not correct</button>${t.mop==='split'?'':`<button class="btn ghost sm" data-a="rmopChgAsk" data-id="${t.id}">Change to ${other}</button>`}</div></div>`;
+   <div class="rbtns"><button class="btn green sm" data-a="rmopOk" data-id="${t.id}">Yes, correct</button><button class="btn red sm" data-a="rmopBadAsk" data-id="${t.id}">Not correct</button>${t.mop==='split'?'':`<button class="btn ghost sm" data-a="rmopChgAsk" data-id="${t.id}">Suggest ${other}</button>`}</div></div>`;
   return `<div class="rmopbox">${rmopBadge(t)}<div class="rbtns"><button class="btn ghost sm" data-a="rmopUndo" data-id="${t.id}">Undo / review again</button></div></div>`;
 }
 
@@ -2349,26 +2350,19 @@ function act(a,el,ev){
     e.recv=(e.recv===v)?undefined:v;if(e.recv===undefined)delete e.recv;e.recvTs=Date.now();persist();toast(e.recv==='yes'?'Marked as received':e.recv==='no'?'Marked as not received — tell the admin':'Cleared');break;}
   case 'rmopOk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
     t.rmop={state:'ok',ts:Date.now(),mop:t.mop};persist();toast('Thanks — confirmed');break;}
-  case 'rmopBadAsk':{ui.rmop={id,note:''};break;}
-  case 'rmopCancel':ui.rmop={id:null,note:''};break;
+  case 'rmopBadAsk':{ui.rmop={id,note:'',kind:'bad'};break;}
+  case 'rmopCancel':ui.rmop={id:null,note:'',kind:'bad'};break;
   case 'rmopBadSend':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
     const note=(ui.rmop.note||'').trim();if(!note){toast('Write a short note for the admin first');return}
-    t.rmop={state:'bad',note,ts:Date.now(),mop:t.mop};ui.rmop={id:null,note:''};persist();toast('Sent to admin');break;}
-  case 'rmopChgAsk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
-    if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin to change it.');return}
-    const to=t.mop==='cash'?'Online':'Cash';
-    ui.modal={type:'confirm',title:'Change to '+to+'?',msg:t.mop==='cash'?'This will switch the payment from Cash to Online and mark it not yet paid, until the admin checks it.':'This will switch the payment from Online to Cash and mark it as paid in cash (the customer paid you late). The admin will see that you changed it.',yes:'rmopChgYes',id,yesLabel:'Yes, change to '+to,yesCls:'orange',noLabel:'Cancel'};break;}
-  case 'rmopChgYes':{const t=S.transactions.find(x=>x.id===id);closeModal();if(!t||me.role!=='rider'||t.rider!==me.rider||t.mop==='split')return;
-    if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin to change it.');return}
-    const prev={mop:t.mop,account:t.account||'',received:t.received||0,status:t.status,splitCash:t.splitCash||0,splitOnline:t.splitOnline||0,tip:t.tip||0};
+    t.rmop={state:'bad',note,ts:Date.now(),mop:t.mop};ui.rmop={id:null,note:'',kind:'bad'};persist();toast('Sent to admin');break;}
+  case 'rmopChgAsk':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider||t.mop==='split')return;
+    ui.rmop={id,note:'',kind:'change'};break;}
+  case 'rmopChgSend':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider||t.mop==='split')return;
+    /* a suggestion only: nothing about the transaction itself changes — the admin/owner decides */
     const from=t.mop==='cash'?'Cash':'Online',to=t.mop==='cash'?'Online':'Cash';
-    if(t.mop==='cash'){t.mop='online';t.status='nyp';t.received=0;t.account='';t.tip=0}
-    else{t.mop='cash';t.status='verified';t.received=t.r.total;t.account='';t.tip=0}
-    t.splitCash=0;t.splitOnline=0;t.remitted=false;
-    t.rmop={state:'changed',from,to,ts:Date.now(),prev,mop:t.mop};persist();toast('Changed to '+to+' — the admin can see it');break;}
+    t.rmop={state:'change',from,to,note:(ui.rmop.note||'').trim(),ts:Date.now(),mop:t.mop};ui.rmop={id:null,note:'',kind:'bad'};persist();toast('Suggestion sent to admin — they will decide');break;}
   case 'rmopUndo':{const t=S.transactions.find(x=>x.id===id);if(!t||me.role!=='rider'||t.rider!==me.rider)return;
     if(t.remitted===true&&dayPosted(t.rider,t.date)){toast('This day is already posted — ask the admin.');return}
-    const r=t.rmop;if(r&&r.state==='changed'&&r.prev&&t.mop===r.mop){Object.assign(t,r.prev)}
     delete t.rmop;persist();toast('Reset');break;}
   case 'delBad':{if(me.role!=='owner')return;S.badOrders=S.badOrders.filter(b=>b.id!==id);persist();toast('Bad order removed');break;}
   case 'delFlag':S.flags=S.flags.filter(f=>f.id!==id);persist();toast('Entry deleted');break;
