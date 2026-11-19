@@ -1417,11 +1417,12 @@ function vRemit(){
   const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
   return `<section class="card"><h2>${me.role==='rider'?'My remit':'Rider remit'}</h2>
   <div class="grid2">${me.role==='rider'?'':`<label class="f">Rider<select data-b="r.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`}
-  <label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>
+  ${me.role==='rider'?'':`<label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label>`}</div>
   <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button></div>
   </section>
   ${vDailySummary(riderSel)}<section class="card">
-  <h3 style="margin-top:0">Transaction history</h3>
+  ${me.role==='rider'?`<h3 style="margin-top:0">Transaction history</h3><p class="hint" style="margin:0 0 6px">Choose the dates to see your transactions:</p>
+  <div class="grid2"><label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>`:`<h3 style="margin-top:0">Transaction history</h3>`}
   ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
   <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${simpleMop}</span></div></div>
   <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
