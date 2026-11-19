@@ -179,14 +179,21 @@ textarea{resize:vertical}
 .rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;align-items:center}
 .rmopbox{margin-top:8px;padding:8px 10px;border:1.5px dashed var(--line);border-radius:10px}
 .rmopbox p{margin:0 0 6px;font-size:.85rem}
+.dtable.f1 th:first-child,.dtable.f1 td:first-child{position:sticky;left:0;background:var(--surface,#fff);z-index:2;white-space:normal;max-width:120px;min-width:80px;box-shadow:3px 0 4px -2px rgba(0,0,0,.15)}
+.dtable.f1 th:first-child{z-index:3}
+.qb{width:22px;height:22px;min-height:0;border-radius:50%;border:1.5px solid var(--line);background:var(--fld);color:var(--muted);font-weight:800;font-size:.72rem;padding:0;margin-left:6px;line-height:1;display:inline-grid;place-items:center;flex:none}
+.qb[aria-expanded="true"]{background:var(--blue);color:var(--on);border-color:var(--blue)}
+.hq{display:inline-flex;align-items:center}
+.helpbox{background:var(--fld);border-radius:10px;padding:8px 10px;border-left:4px solid var(--blue)}
 .dtable .dshort{display:none}
 @media (max-width:640px){
-  .dtable.freeze .dfull{display:none}
-  .dtable.freeze .dshort{display:inline}
+  .dtable.freeze .dfull,.dtable.f1 .dfull{display:none}
+  .dtable.freeze .dshort,.dtable.f1 .dshort{display:inline}
   .dtable.freeze th:nth-child(1),.dtable.freeze td:nth-child(1){min-width:34px;width:34px;padding-left:6px;padding-right:2px}
   .dtable.freeze th:nth-child(2),.dtable.freeze td:nth-child(2){left:34px;min-width:50px;width:50px;padding-left:4px;padding-right:4px}
   .dtable.freeze th:nth-child(3),.dtable.freeze td:nth-child(3){left:84px;min-width:84px;max-width:96px;width:96px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.15;font-size:.78rem;padding-left:6px;padding-right:6px;word-break:break-word}
 }
+.dtable td.chk{white-space:nowrap}
 .dtable td.notes-cell{white-space:normal;max-width:220px;min-width:140px}
 .empty-inline{color:var(--muted)}
 .bigchk{width:20px;height:20px;cursor:pointer}
@@ -779,7 +786,7 @@ const ui={pend:false,ongo:false,cash:false,bills:false,alarm:null,modal:null,sho
   rem:{rider:'all',from:today(),to:today()},
   report:{from:today(),to:today()},
   bad:{date:today(),amount:'',reason:'',err:''},
-  rmop:{id:null,note:'',kind:'bad'},
+  rmop:{id:null,note:'',kind:'bad'},helpOpen:{},
   pay:{dateScope:'all',from:'',to:'',rider:'all',q:'',notesQ:'',statusSel:{},dupOnly:false},selPay:{},
   fundF:{date:today(),amt:'',note:'',err:'',mode:'add'},dedF:{date:today(),amt:'',err:''},tipF:{date:today(),amt:'',note:'',err:''},
   flagF:{block:{customer:'',reason:''},riderBlock:{customer:'',rider:'',reason:''},itemBan:{rider:'',item:'',note:''},note:{rider:'',note:''}},
@@ -1291,8 +1298,8 @@ function vHistory(){
 
 /* remit */
 function remitList(){
-  const f=ui.rem,rider=me.role==='rider'?me.rider:f.rider;
-  return S.transactions.filter(t=>t.date>=f.from&&t.date<=f.to&&(rider==='all'||t.rider===rider)&&t.status!=='disreg').sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
+  const f=ui.rem,R=remRange(),rider=me.role==='rider'?me.rider:f.rider;
+  return S.transactions.filter(t=>t.date>=R.from&&t.date<=R.to&&(rider==='all'||t.rider===rider)&&t.status!=='disreg').sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
 }
 function remitTotals(list){
   const paid=list.filter(effectiveConfirmed);
@@ -1411,37 +1418,70 @@ function vLedgerCard(riderName){
   </div>
   </section>`;
 }
+/* The transaction list follows the Summary date by default, so choosing a day
+   in the summary always shows every transaction of that day. Picking a custom
+   From/To range in the history filter overrides that — but only while the
+   Summary date stays where it was; moving the Summary date drops back to
+   "that day". Display-only: nothing stored changes. */
+function remRange(){
+  const f=ui.rem;
+  return (f.custom&&f.cSum===ui.sumDate)?{from:f.from,to:f.to,custom:true}:{from:ui.sumDate,to:ui.sumDate,custom:false};
+}
+function riderMopForm(t){
+  const other=t.mop==='cash'?'Online':'Cash';
+  const mopTxt=t.mop==='cash'?'Cash':t.mop==='split'?'Split (cash + online)':'Online';
+  return `<div class="rmopbox"><p>${ui.rmop.kind==='change'?`<b>Suggest changing to ${other}.</b> The admin will see your note and decide.`:`<b>Tell the admin what is wrong</b> with the mode of payment (${mopTxt}).`}</p>
+   <label class="f"><textarea rows="2" data-b="ui.rmop.note" placeholder="${ui.rmop.kind==='change'?'e.g. customer paid cash late':'e.g. customer paid cash, not GCash'}">${esc(ui.rmop.note)}</textarea></label>
+   <div class="rbtns"><button class="btn ${ui.rmop.kind==='change'?'orange':'red'} sm" data-a="${ui.rmop.kind==='change'?'rmopChgSend':'rmopBadSend'}" data-id="${t.id}">Send to admin</button><button class="btn ghost sm" data-a="rmopCancel">Cancel</button></div></div>`;
+}
+function riderMopCell(t){
+  const r=t.rmop,locked=t.remitted===true&&dayPosted(t.rider,t.date);
+  const other=t.mop==='cash'?'Online':'Cash';
+  if(r){
+    return rmopBadge(t)+(locked?'':`<button class="btn ghost sm" data-a="rmopUndo" data-id="${t.id}" title="Withdraw your note and review again">Undo</button>`);
+  }
+  if(locked)return '&mdash;';
+  return `<div class="rbtns" style="margin:0"><button class="btn green sm" data-a="rmopOk" data-id="${t.id}" title="The mode of payment saved is correct">&#10003; OK</button><button class="btn red sm" data-a="rmopBadAsk" data-id="${t.id}" title="The mode of payment saved is not correct">&#10007; Wrong</button>${t.mop==='split'?'':`<button class="btn ghost sm" data-a="rmopChgAsk" data-id="${t.id}" title="Suggest ${other} instead">&#8644; ${other}</button>`}</div>`;
+}
+function remitTable(list){
+  const isR=me.role==='rider';
+  const multi=new Set(list.map(t=>t.date)).size>1;
+  const tot=list.reduce((o,t)=>({amt:o.amt+t.r.total,earn:o.earn+(effectiveConfirmed(t)?earn(t):0),due:o.due+(effectiveConfirmed(t)?due(t):0),rf:o.rf+refundToRider(t)}),{amt:0,earn:0,due:0,rf:0});
+  const cols=6+(multi?1:0)+1;
+  const mopOf=t=>t.mop==='cash'?'Cash':t.mop==='split'?'Split':'Online';
+  const rows=list.map(t=>{
+    const rf=refundToRider(t);
+    const main=`<tr class="rr ${effectiveConfirmed(t)?'':'dim'}">
+     <td><strong>${esc(t.customer)}</strong></td>
+     ${multi?`<td><span class="dfull">${fmtDate(t.date)}</span><span class="dshort">${fmtDate(t.date).replace(/,\s*\d{4}$/,'')}</span></td>`:''}
+     <td class="num">${peso(t.r.total)}</td><td class="num">${peso(earn(t))}</td><td class="num">${peso(due(t))}</td>
+     <td class="num">${rf>0?peso(rf):'&mdash;'}</td>
+     <td>${mopOf(t)}</td>
+     <td>${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet</span>':'&mdash;')}</td>
+     <td class="${isR&&!t.rmop&&!(t.remitted===true&&dayPosted(t.rider,t.date))?'chk':'notes-cell'}">${isR?riderMopCell(t):(rmopBadge(t)||'&mdash;')}</td></tr>`;
+    return main+(isR&&ui.rmop.id===t.id?`<tr><td colspan="${cols+1}" style="white-space:normal">${riderMopForm(t)}</td></tr>`:'');
+  }).join('');
+  return `<div class="dtable f1"><table><thead><tr><th>Customer</th>${multi?'<th>Date</th>':''}<th>Total</th><th>Earns</th><th>Remit</th><th>Refund</th><th>MOP</th><th>Status</th><th>${isR?'Check MOP':'Rider note'}</th></tr></thead>
+  <tbody>${rows}</tbody>
+  <tfoot><tr style="font-weight:700;border-top:2px solid var(--line)"><td>Total (${list.length})</td>${multi?'<td></td>':''}<td class="num">${peso(tot.amt)}</td><td class="num">${peso(tot.earn)}</td><td class="num">${peso(tot.due)}</td><td class="num">${tot.rf>0?peso(tot.rf):''}</td><td colspan="3"></td></tr></tfoot></table></div>`;
+}
 function vRemit(){
-  const f=ui.rem,list=remitList(),canEdit=me.role!=='rider';
+  const f=ui.rem,list=remitList(),canEdit=me.role!=='rider',R=remRange();
   const riderSel=me.role==='rider'?me.rider:f.rider;
   const names=[...new Set([...S.settings.riders.map(r=>r.name),...S.transactions.map(t=>t.rider)])];
+  const dateInputs=`<label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${R.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${R.to}"></label>`;
   return `<section class="card"><h2>${me.role==='rider'?'My remit':'Rider remit'}</h2>
   <div class="grid2">${me.role==='rider'?'':`<label class="f">Rider<select data-b="r.rider" data-rr="1"><option value="all">All riders</option>${names.map(n=>`<option value="${esc(n)}" ${f.rider===n?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`}
-  ${me.role==='rider'?'':`<label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label>`}</div>
+  ${me.role==='rider'?'':dateInputs}</div>
   <div class="tools"><button class="btn blue" data-a="csv">Export CSV</button></div>
   </section>
   ${vDailySummary(riderSel)}<section class="card">
-  ${me.role==='rider'?`<h3 style="margin-top:0">Transaction history</h3><p class="hint" style="margin:0 0 6px">Choose the dates to see your transactions:</p>
-  <div class="grid2"><label class="f">From<input type="date" data-b="r.from" data-rr="1" value="${f.from}"></label><label class="f">To<input type="date" data-b="r.to" data-rr="1" value="${f.to}"></label></div>`:`<h3 style="margin-top:0">Transaction history</h3>`}
-  ${list.length?`<ul class="hist">${list.map(t=>{const rf=refundToRider(t);const simpleMop=t.mop==='cash'?'Cash':'Online';return `<li class="tx rr ${effectiveConfirmed(t)?'':'dim'}"><div class="txh"><div><strong>${esc(t.customer)}</strong>
-  <div class="meta"><span>${fmtDate(t.date)}</span><span>Rider ${esc(t.rider)}</span><span>${simpleMop}</span></div></div>
-  <div class="amts"><b>${peso(t.r.total)}</b><small>Earns ${peso(earn(t))}</small><small>Remit ${peso(due(t))}</small></div></div>
-  <div class="pd"><span class="chip ${t.mop==='cash'?'paid':'verified'}">${simpleMop}</span>${rf>0?`<span>Refund to rider <b>${peso(rf)}</b></span>`:''}</div>
-  ${t.remitted?'<span class="chip paid">Remitted</span>':(effectiveConfirmed(t)?'<span class="chip nyp">Not yet remitted</span>':'')}${me.role==='rider'?riderMopBlock(t):rmopBadge(t)}</li>`}).join('')}</ul>`:'<p class="empty">No transactions in this range. Change the dates or filters.</p>'}</section>
+  <h3 style="margin-top:0">Transaction history</h3>
+  <p class="hint">${R.custom?'Showing your chosen date range. ':'Showing every transaction on the Summary date above. '}Change the From / To dates to see a longer range; moving the Summary date goes back to a single day.</p>
+  ${me.role==='rider'?`<div class="grid2">${dateInputs}</div>`:''}
+  ${R.custom?`<button class="link" data-a="remFollow">Show only the Summary date again</button>`:''}
+  ${list.length?remitTable(list):'<p class="empty">No transactions on these dates.</p>'}</section>
   ${vLedgerCard(riderSel)}`;
-}
-
-function riderMopBlock(t){
-  const r=t.rmop,locked=t.remitted===true&&dayPosted(t.rider,t.date);
-  const mopTxt=t.mop==='cash'?'Cash':t.mop==='split'?'Split (cash + online)':'Online';
-  const other=t.mop==='cash'?'Online':'Cash';
-  if(ui.rmop.id===t.id)return `<div class="rmopbox"><p>${ui.rmop.kind==='change'?`<b>Suggest changing to ${other}.</b> The admin will see your note and decide.`:`<b>Tell the admin what is wrong</b> with the mode of payment (${mopTxt}).`}</p>
-   <label class="f"><textarea rows="2" data-b="ui.rmop.note" placeholder="${ui.rmop.kind==='change'?'e.g. customer paid cash late':'e.g. customer paid cash, not GCash'}">${esc(ui.rmop.note)}</textarea></label>
-   <div class="rbtns"><button class="btn ${ui.rmop.kind==='change'?'orange':'red'} sm" data-a="${ui.rmop.kind==='change'?'rmopChgSend':'rmopBadSend'}" data-id="${t.id}">Send to admin</button><button class="btn ghost sm" data-a="rmopCancel">Cancel</button></div></div>`;
-  if(locked)return r?rmopBadge(t):'';
-  if(!r)return `<div class="rmopbox"><p>Mode of payment saved by admin: <b>${mopTxt}</b>. Is this correct?</p>
-   <div class="rbtns"><button class="btn green sm" data-a="rmopOk" data-id="${t.id}">Yes, correct</button><button class="btn red sm" data-a="rmopBadAsk" data-id="${t.id}">Not correct</button>${t.mop==='split'?'':`<button class="btn ghost sm" data-a="rmopChgAsk" data-id="${t.id}">Suggest ${other}</button>`}</div></div>`;
-  return `<div class="rmopbox">${rmopBadge(t)}<div class="rbtns"><button class="btn ghost sm" data-a="rmopUndo" data-id="${t.id}">Undo / review again</button></div></div>`;
 }
 
 /* payment status */
@@ -1919,6 +1959,18 @@ function renderKey(){
 }
 const appCtls=()=>Array.from(document.querySelectorAll('#app input,#app select,#app textarea'));
 function userBusy(){return !safeToRefresh()||Date.now()-lastInteract<1500}
+const HELP_RE=/(<h([234])[^>]*>)((?:(?!<\/h[234]>)[\s\S])*)(<\/h\2>)(\s*)<p class="hint">([\s\S]*?)<\/p>/g;
+function helpHash(t){let h=5381;for(let i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return 'h'+(h>>>0).toString(36)}
+/* A short description printed under a heading becomes a small "?" button beside
+   that heading; tapping it shows or hides the text. Display-only. */
+function helpify(html){
+  return html.replace(HELP_RE,(m,open,lvl,inner,close,ws,hint)=>{
+    const k=helpHash(hint),on=!!ui.helpOpen[k];
+    const idx=inner.indexOf('<'),lead=idx<0?inner:inner.slice(0,idx),rest=idx<0?'':inner.slice(idx);
+    const btn=`<button type="button" class="qb" data-a="helpTog" data-k="${k}" aria-expanded="${on}" aria-label="Show or hide the description" title="What is this?">?</button>`;
+    return open+`<span class="hq">${lead}${btn}</span>`+rest+close+(on?`<p class="hint helpbox">${hint}</p>`:'');
+  });
+}
 function render(opts){
   _dupC=null;
   if(me&&repairRemits())persist();
@@ -1942,7 +1994,7 @@ function render(opts){
     }
   }
   pendingRender=false;
-  app.innerHTML=(me?vShell():vLogin())+vModal();
+  app.innerHTML=helpify(me?vShell():vLogin())+vModal();
   lastRenderKey=key;
   if(!same)return;
   ignoreScrollUntil=Date.now()+400;
@@ -2080,7 +2132,9 @@ function setPath(path,val){
   const p=path.split('.');
   let o=p[0]==='c'?calc:p[0]==='m'?ui.modal:p[0]==='fundF'?ui.fundF:p[0]==='dedF'?ui.dedF:p[0]==='tipF'?ui.tipF:p[0]==='pay'?ui.pay:p[0]==='s'?S.settings:p[0]==='ui'?ui:ui.rem;
   for(let i=1;i<p.length-1;i++)o=o[p[i]];
-  o[p[p.length-1]]=val;
+  const key=p[p.length-1];
+  if(o===ui.rem&&(key==='from'||key==='to')&&!(o.custom&&o.cSum===ui.sumDate)){const R=remRange();o.from=R.from;o.to=R.to;o.custom=true;o.cSum=ui.sumDate}
+  o[key]=val;
 }
 function closeModal(){ui.modal=null}
 function delBooking(id){S.bookings=S.bookings.filter(b=>b.id!==id);persist()}
@@ -2335,6 +2389,8 @@ function act(a,el,ev){
   case 'forceSyncAsk':if(me.role!=='owner')return;ui.modal={type:'forceSync'};break;
   case 'doForceSync':if(me.role!=='owner')return;closeModal();forcePushLocal();return;
   case 'toggleSyncLock':if(me.role!=='owner')return;setSyncLock(!S.settings.syncLocked);return;
+  case 'helpTog':ui.helpOpen[k]=!ui.helpOpen[k];break;
+  case 'remFollow':ui.rem.custom=false;break;
   case 'csv':exportCsv();return;
   case 'historyCsv':exportHistoryCsv();return;
 
