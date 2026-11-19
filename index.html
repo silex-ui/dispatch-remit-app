@@ -279,7 +279,7 @@ const KEY='delivery_dispatch_remit_v1';
    Set once the Sheet/script is deployed — see setup notes at the bottom of this file. */
 const API_URL='https://script.google.com/macros/s/AKfycbyPQAwmIal10aJmz8Fi7UgLcW0rmih-_8IvupT7x40hTPDypA9X2XRkuk37rNI0fgaa0w/exec';
 const API_KEY='bj6aF0zueMn6KtDGerbPDoG0alvwuwB3';
-const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[],badOrders:[],dupOk:{}});
+const fresh=()=>({settings:{ownerPin:'1903',adminPin:'1234',riders:[],timezone:'Asia/Manila',syncLocked:false},bookings:[],transactions:[],ledger:[],riderDays:{},flags:[],badOrders:[],dupOk:{},caLog:[]});
 function normalize(s){
   if(!(s&&s.settings&&s.bookings&&s.transactions))return fresh();
   s.transactions.forEach(t=>{if(!t.status){t.status=t.pay==='paid'?'paid':'nyp';t.mop=t.mop||'online';t.account=t.account||'keem';t.received=t.received!=null?t.received:(t.pay==='paid'?t.r.total:0);t.tip=t.tip||0}if(t.notes==null)t.notes=''});
@@ -288,6 +288,7 @@ function normalize(s){
   s.flags=s.flags||[];
   s.badOrders=s.badOrders||[];
   s.dupOk=s.dupOk||{};
+  s.caLog=s.caLog||[];
   (s.settings.riders||[]).forEach(r=>{if(r.cashAdvance==null)r.cashAdvance=0;if(!r.token)r.token=genToken()});
   if(!s.settings.timezone)s.settings.timezone='Asia/Manila';
   if(s.settings.syncLocked==null)s.settings.syncLocked=false;
@@ -477,14 +478,15 @@ function mergeState(base,local,remote){
     riderDays:mergeMap(base.riderDays,local.riderDays,remote.riderDays),
     flags:mergeArrayById(base.flags,local.flags,remote.flags),
     badOrders:mergeArrayById(base.badOrders,local.badOrders,remote.badOrders),
-    dupOk:mergeMap(base.dupOk,local.dupOk,remote.dupOk)
+    dupOk:mergeMap(base.dupOk,local.dupOk,remote.dupOk),
+    caLog:mergeArrayById(base.caLog,local.caLog,remote.caLog)
   };
   // Safety net: if either side has a top-level field this version of the
   // code doesn't explicitly know how to merge yet (e.g. a device still
   // running slightly older code than the one that just added a new
   // feature), carry it over instead of silently dropping it. Local wins
   // when both have it, since it's the most recently touched copy.
-  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags','badOrders','dupOk']);
+  const known=new Set(['settings','bookings','transactions','ledger','riderDays','flags','badOrders','dupOk','caLog']);
   [local,remote].forEach(src=>{
     Object.keys(src).forEach(k=>{
       if(!known.has(k)&&!(k in out))out[k]=src[k];
@@ -1308,8 +1310,21 @@ function remitTotals(list){
   const refund=list.reduce((s,t)=>s+refundToRider(t),0);
   return{collected,earned,dueAll,done,balance:dueAll-done,refund};
 }
+/* Cash advance balance as it stood at the end of a given day. Today (or later)
+   is simply the live balance, so looking at an older day never changes it.
+   For an older day we undo what happened after it: deductions dated later
+   (each remembers how much of it paid down the advance) and later manual
+   edits to the balance (logged from now on). */
+function caBalanceAt(riderName,date){
+  const rObj=S.settings.riders.find(r=>r.name===riderName);
+  const cur=rObj?num(rObj.cashAdvance||0):0;
+  if(date>=today())return cur;
+  const applied=S.ledger.filter(e=>e.rider===riderName&&e.type==='deduction'&&e.date>date).reduce((a,e)=>a+num(e.caApplied),0);
+  const manual=(S.caLog||[]).filter(l=>l.rider===riderName&&l.date>date).reduce((a,l)=>a+num(l.delta),0);
+  return Math.max(0,cur+applied-manual);
+}
 function ledgerList(riderName){
-  const f=ui.rem;
+  const f=remRange();
   return S.ledger.filter(e=>e.rider===riderName&&e.date>=f.from&&e.date<=f.to).sort((a,b)=>a.date.localeCompare(b.date)||a.ts-b.ts);
 }
 function ledgerTotals(riderName){
@@ -1323,7 +1338,7 @@ function ledgerTotals(riderName){
    payment while updating a transaction's payment details — those carry the
    customer's name so the rider can see exactly who the tip came from. */
 function tipEntriesCombined(riderName){
-  const f=ui.rem;
+  const f=remRange();
   const manual=S.ledger.filter(e=>e.rider===riderName&&e.type==='tip'&&e.date>=f.from&&e.date<=f.to)
     .map(e=>({id:e.id,ts:e.ts,date:e.date,amount:e.amount,label:e.note||'Manual tip',kind:'ledger'}));
   const auto=S.transactions.filter(t=>t.rider===riderName&&(t.tip||0)>0&&t.status!=='disreg'&&t.date>=f.from&&t.date<=f.to)
@@ -1336,7 +1351,7 @@ function vDailySummary(riderName){
   const d=ui.sumDate;
   const sum=daySummary(riderName,d);
   const rObj=S.settings.riders.find(r=>r.name===riderName);
-  const ca=rObj?num(rObj.cashAdvance||0):0;
+  const ca=caBalanceAt(riderName,d);
   const stat=(label,val,sub,cls)=>`<div class="stat ${cls||''}"><small>${label}</small><b>${peso(val)}</b>${sub?`<span class="dsub">${sub}</span>`:''}</div>`;
   const ibVal=ui.ibF!=null?ui.ibF:String(sum.initialBudget);
   const{list}=ledgerTotals(riderName);
@@ -1388,7 +1403,7 @@ function vDailySummary(riderName){
    ${stat('Deductions',sum.deductions)}
    ${stat('Total rider fund',sum.totalRiderFund,'Initial budget + Total fund + Deductions + Management share − Total online refund − Online tip','wide hl')}
   </div>
-  ${ca>0?`<div class="stats"><div class="stat wide"><small>Cash advance balance</small><b>${peso(ca)}</b><span class="dsub">Still owed from a cash advance — repaid through deductions, not included in Total Rider Fund</span></div></div>`:''}
+  ${ca>0?`<div class="stats"><div class="stat wide"><small>Cash advance balance${d<today()?' as of '+fmtDate(d):''}</small><b>${peso(ca)}</b><span class="dsub">Still owed from a cash advance — repaid through deductions, not included in Total Rider Fund${d<today()?'. Today\'s balance is not affected by looking at this day.':''}</span></div></div>`:''}
   ${me.role==='owner'?`<button class="btn orange big" data-a="postDay" data-rider="${esc(riderName)}" ${sum.posted?'disabled':''}>${sum.posted?'Day posted':'Post & start next day'}</button>`:(canEdit&&!sum.posted?'<p class="hint">Only the Owner can post a day.</p>':'')}
   ${me.role==='owner'&&sum.posted?unpostBlock(riderName,d):''}
   <button class="btn blue" style="margin-top:8px" data-a="downloadRemitImage" data-rider="${esc(riderName)}">Download summary (.jpeg)</button>
@@ -1566,7 +1581,7 @@ async function downloadRemitSummaryImage(riderName){
   if(typeof html2canvas==='undefined'){toast('Image export is still loading — try again in a moment.');return}
   const date=ui.sumDate,sum=daySummary(riderName,date);
   const rObj=S.settings.riders.find(r=>r.name===riderName);
-  const ca=rObj?num(rObj.cashAdvance||0):0;
+  const ca=caBalanceAt(riderName,date);
   const led=dayLedger(riderName,date);
   const fundEntries=led.filter(e=>e.type==='fund');
   const dedEntries=led.filter(e=>e.type==='deduction');
@@ -2344,7 +2359,8 @@ function act(a,el,ev){
     persist();toast(S.riderDays[key].ibLocked?'Initial budget locked — Admin cannot edit it':'Initial budget unlocked');break;}
   case 'saveCashAdvance':{const rider=el.dataset.rider;
     const rObj=S.settings.riders.find(r=>r.name===rider);
-    if(rObj){rObj.cashAdvance=Math.max(0,num(ui.caF!=null?ui.caF:0))}
+    if(rObj){const was=num(rObj.cashAdvance||0),now=Math.max(0,num(ui.caF!=null?ui.caF:0));rObj.cashAdvance=now;
+      if(now!==was)S.caLog.push({id:uid(),ts:Date.now(),rider,date:today(),delta:now-was})}
     ui.caF=null;persist();toast('Cash advance balance saved');break;}
   case 'postDay':{if(me.role!=='owner')return;const rider=el.dataset.rider,date=ui.sumDate,key=rdKey(rider,date);
     const sum=daySummary(rider,date);
