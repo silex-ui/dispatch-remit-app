@@ -948,6 +948,10 @@ function repairRemits(){
     if(!latest[r]||d>latest[r])latest[r]=d;
   });
   S.transactions.forEach(t=>{
+    /* A rider's MOP note is about the mode of payment that was saved when they wrote it.
+       Once the MOP has been changed (e.g. by the admin on another device, or before the
+       note arrived), the note is out of date and is cleared. */
+    if(t.rmop&&t.rmop.mop&&t.rmop.mop!==t.mop){delete t.rmop;changed=true}
     const counts=t.status==='disreg'||effectiveConfirmed(t);
     if(!counts)return;
     const rec=getRiderDay(t.rider,t.date);
