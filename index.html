@@ -409,6 +409,35 @@ function deepEq(a,b){
   for(const k of ak){if(!Object.prototype.hasOwnProperty.call(b,k)||!deepEq(a[k],b[k]))return false}
   return true;
 }
+/* Merge two edits of the SAME record field by field, so two people changing
+   different things on one transaction (e.g. one fixes the notes while the other
+   updates the payment) both keep their change. Fields that belong together
+   (the payment details; the calculator details) move as a group, so a record is
+   never left half one person's and half the other's. If both changed the very
+   same group/field, this device's version wins (same as before). */
+const MERGE_GROUPS=[
+  ['mop','account','received','splitCash','splitOnline','status','tip','remitted'],
+  ['date','customer','rider','r']
+];
+function mergeRecord(b,l,r){
+  const isObj=x=>x&&typeof x==='object'&&!Array.isArray(x);
+  if(!isObj(b)||!isObj(l)||!isObj(r))return l;
+  const out={},done=new Set();
+  const take=(k,src)=>{if(src[k]!==undefined)out[k]=src[k]};
+  MERGE_GROUPS.forEach(g=>{
+    g.forEach(k=>done.add(k));
+    const lCh=g.some(k=>!deepEq(l[k],b[k])),rCh=g.some(k=>!deepEq(r[k],b[k]));
+    const src=(rCh&&!lCh)?r:l;
+    g.forEach(k=>take(k,src));
+  });
+  new Set([...Object.keys(l),...Object.keys(r)]).forEach(k=>{
+    if(done.has(k))return;
+    const lv=l[k],rv=r[k],bv=b[k];
+    const v=deepEq(lv,rv)?lv:(deepEq(lv,bv)?rv:lv);
+    if(v!==undefined)out[k]=v;
+  });
+  return out;
+}
 function mergeArrayById(base,local,remote){
   // No baseline at all (this device has never completed a sync, including a
   // device that had stale data cached from before baselines were persisted)
@@ -425,7 +454,7 @@ function mergeArrayById(base,local,remote){
     if(l&&r){
       if(noBaseline){out.push(r);return}
       const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);
-      out.push(lCh?l:(rCh?r:l)); // local edit wins on a genuine conflict (it's the change in progress on this device)
+      out.push(lCh&&rCh?mergeRecord(b,l,r):(lCh?l:(rCh?r:l))); // both edited: keep each person's different fields; same field -> this device wins
     }else if(l&&!r){
       if(b&&deepEq(l,b))return; // unchanged locally, deleted remotely -> respect the deletion
       out.push(l); // new locally, or locally edited after being deleted elsewhere -> keep it
@@ -445,7 +474,7 @@ function mergeMap(base,local,remote){
     const b=base[k],l=local[k],r=remote[k];
     if(l&&r){
       if(noBaseline){out[k]=r;return}
-      const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);out[k]=lCh?l:(rCh?r:l);
+      const lCh=!b||!deepEq(l,b),rCh=!b||!deepEq(r,b);out[k]=(lCh&&rCh&&b)?mergeRecord(b,l,r):(lCh?l:(rCh?r:l));
     }
     else out[k]=l||r;
   });
@@ -529,9 +558,15 @@ async function doPush(){
   if(pushing){pushAgain=true;return}
   pushing=true;sync.status='saving';paintStatus();
   let dataChanged=false;
+  /* The baseline for the next merge must be EXACTLY what was sent — not whatever
+     S happens to hold when the reply arrives. Anything typed while the save was
+     in flight is not on the sheet yet; if it were folded into the baseline, the
+     next merge would think it was already saved and could throw it away. */
+  const sent=clone(S);
   try{
-    const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(S),writer:DEVICE_TAG});
-    if(j.ok){pushFails=0;sVer=j.version;lastSynced=clone(S);saveSyncedLocal(lastSynced);sync.status='online';sync.msg='';sync.lastOkAt=Date.now()}
+    const j=await formPost(API_URL,{key:API_KEY,expectedVersion:String(sVer),data:JSON.stringify(sent),writer:DEVICE_TAG});
+    if(j.ok){pushFails=0;sVer=j.version;lastSynced=sent;saveSyncedLocal(lastSynced);sync.status='online';sync.msg='';sync.lastOkAt=Date.now();
+      if(!deepEq(S,sent))pushAgain=true}
     else if(j.conflict){
       pushFails=0;
       const remote=normalize(j.data);
@@ -2490,6 +2525,10 @@ function act(a,el,ev){
 }
 
 /* ---------- events ---------- */
+window.addEventListener('beforeunload',e=>{
+  if(!API_ON)return;
+  if(pushTimer||pushing||pushRetryTimer||(lastSynced&&!deepEq(S,lastSynced))){e.preventDefault();e.returnValue='';return ''}
+});
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-a]');if(!el)return;
   act(el.dataset.a,el,e);
